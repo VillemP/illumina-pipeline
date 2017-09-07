@@ -5,6 +5,7 @@ import os, sys, shutil
 commands = ['WriteVcfs', 'CopyVcfs']
 duplicates = 0
 
+
 def find_vcfs(directory):
     assert os.path.exists(directory)
     duplicates = 0

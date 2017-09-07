@@ -34,6 +34,7 @@ def validate_config(bams, vcfs, prefixes):
                 # raise ValueError(prefixdata[i], bamdata[i], vcfdata[i])
         if not lineerror:
             print("Config files have no discernible errors and are ready to start analysis.")
+            return True
 
     elif bam_vcf_equal or bam_prefix_equal:
         print "Files {0} and {1} do not match in length!".format(
@@ -47,6 +48,8 @@ def validate_config(bams, vcfs, prefixes):
 
     for config in config_files:
         config.close()
+
+    return False
 
 
 # Check if file exists, doesn't have any trailing whitespace, ASCII only
