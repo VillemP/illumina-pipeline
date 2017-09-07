@@ -26,8 +26,8 @@ def validate_config(bams, vcfs, prefixes):
                                  "Check your bam, vcf, prefix lists for file length and line endings.")
 
         for i in range(0, len(prefixdata)):
-            if not prefixdata[i] in bamdata[i] and prefixdata[i] in vcfdata[i]:
-                print("Config files on line {0} do not match!".format(i))
+            if not (prefixdata[i].rstrip() in bamdata[i].rstrip() and prefixdata[i].rstrip() in vcfdata[i].rstrip()):
+                print("Config files on line {0} do not match!".format(i+1))
                 print("Prefix: {0}\nVCF: {1}\nBAM: {2}".format(
                     prefixdata[i], vcfdata[i], bamdata[i]))
                 lineerror = True
