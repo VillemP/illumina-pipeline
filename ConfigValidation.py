@@ -1,4 +1,6 @@
-import os, sys, numpy
+import numpy
+import os
+import sys
 
 
 def validate_config(bams, vcfs, prefixes):
@@ -10,6 +12,9 @@ def validate_config(bams, vcfs, prefixes):
     vcffile = open(vcfs, "r")
     prefixfile = open(prefixes, "r")
     config_files = (bamfile, vcffile, prefixfile)
+
+    for f in config_files:
+        print os.path.realpath(f.name)
 
     bamdata = numpy.asanyarray(bamfile.readlines())
     vcfdata = numpy.asanyarray(vcffile.readlines())
