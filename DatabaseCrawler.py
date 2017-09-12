@@ -99,10 +99,13 @@ def copy_vcf(files, dest, overwrite=False):
 
 
 def file_len(fname):
-    with open(fname) as f:
-        for i, l in enumerate(f):
-            pass
-    return i + 1
+    if os.path.exists(fname):
+        with open(fname) as f:
+            i, l = 0, 0
+            for i, l in enumerate(f):
+                pass
+        return i + 1
+    return None
 
 
 if __name__ == "__main__":
