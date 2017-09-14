@@ -1,9 +1,10 @@
 class genepanel:
-    def __init__(self, name, panel_id, json):
+    def __init__(self, name, panel_id, json, version):
         self.name = name
         self.panel_id = panel_id
         self.json = json
         self.genes = list()
+        self.version = version
         self.genes_json = None
 
     def add_genes(self, json):

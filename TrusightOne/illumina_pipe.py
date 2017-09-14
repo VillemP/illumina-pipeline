@@ -1,5 +1,7 @@
-from TrusightOne.jsonhandler import jsonhandler
 import os
+import pickle
+
+from TrusightOne.jsonhandler import jsonhandler
 
 json_dir = "/media/kasutaja/data/NSG_data/panels_json/"
 
@@ -13,10 +15,10 @@ def main():
             os.makedirs(os.path.join(json_dir, panel.name))
         with open(os.path.join(os.path.join(json_dir, panel.name),
                                panel.name + ".json"), "wb+") as json_file:
-            json_file.write(panel.json)
+            pickle.dump(panel.json, json_file)
         with open(os.path.join(os.path.join(json_dir, panel.name),
                                panel.name + "genes.json", "wb+")) as genes_file:
-            genes_file.write(panel.genes_json)
+            pickle.dump(panel.genes_json, genes_file)
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,6 @@
-import json, requests
 import time
+
+import requests
 
 from TrusightOne.gene_panel import genepanel
 
@@ -21,15 +22,19 @@ class jsonhandler:
         print("Got genes for panel {0}".format(panel_id))
         return q
 
-    def get_all_panels(self):
-        q = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
-                       [{'format','json'}])
-        print("Got all panels.")
+    def get_all_panels(self, external=True):
         panels = list()
-        for panel in q['result']:
-            g_panel = genepanel(panel['Name'], panel['Panel_Id'], panel)
-            g_panel.add_genes(self.get_genes_per_panel(g_panel.panel_id))
-            panels.append(g_panel)
-            time.sleep(10)
-            print("Slept for 10 seconds.")
+        if external:
+            #TODO: Check for version differences in panels
+            q = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
+                           [{'format','json'}])
+            print("Got all panels.")
+            for panel in q['result']:
+                g_panel = genepanel(panel['Name'], panel['Panel_Id'], panel, panel['CurrentVersion'])
+                g_panel.add_genes(self.get_genes_per_panel(g_panel.panel_id))
+                panels.append(g_panel)
+                time.sleep(1) #sleep for 1 second to avoid DDoS safeguards
+        else:
+            #TODO:Open locally stored panel data
+            pass
         return panels
