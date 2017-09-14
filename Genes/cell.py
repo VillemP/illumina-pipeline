@@ -11,7 +11,8 @@ class Cell:
         self.is_toprow = self.row_index == 0
         self.filtered = False
         assert value is not None
-        assert self.row_index >= 0 and self.column_index >= 0
+        assert self.row_index >= 0 and self.column_index >= 0, \
+            "Cell can only exist in positive range."
 
     @property
     def __str__(self):
