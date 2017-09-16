@@ -17,12 +17,13 @@ def main():
             os.makedirs(os.path.join(json_dir, panel.name))
         with open(os.path.join(os.path.join(json_dir, panel.name),
                                panel.name + ".json"), "wb+") as json_file:
-            #pickle.dump(panel.json, json_file)
-            json.dump(panel.json, json_file)
+            # pickle.dump(panel.json, json_file)
+            json.dump(panel.json, json_file, sort_keys=True, indent=4)
         with open(os.path.join(os.path.join(json_dir, panel.name),
                                panel.name + ".genes.json"), "wb+") as genes_file:
-            #pickle.dump(panel.genes_json, genes_file)
-            json.dump(panel.genes_json, genes_file)
+            # pickle.dump(panel.genes_json, genes_file)
+            json.dump(panel.genes_json, genes_file, sort_keys=True, indent=4)
+
 
 if __name__ == "__main__":
     main()
