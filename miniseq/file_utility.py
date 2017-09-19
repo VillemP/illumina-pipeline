@@ -9,6 +9,13 @@ duplicates = 0
 
 
 def find_filetype(dir, filetype):
+    """
+    Will find all files of a certain type (e.g. .vcf or .bam files) in a directory.
+    Method will enter every subdirectory. Can look for only a single filetype at a time.
+    :param dir: String of directory to walk.
+    :param filetype: String of filetype to search for (e.g. .vcf or .bam)
+    :return: list of tuples of file name and file directory
+    """
     assert os.path.exists(dir)
     duplicates = 0
     # unique_files = dict([])
