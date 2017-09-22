@@ -1,13 +1,16 @@
+import argparse
 import os
 import shlex
 import subprocess
 
 import configvalidator
 import file_utility
+# TODO: store variables in a config file
+from sample import Sample
 
 vcf_storage_location = "/media/kasutaja/data/TSC_temp/illumina_pipe/vcfs/"
-db_vcf_list_name = "vcfs-sample-path.list"
-db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq/"
+db_vcf_list_name = "vcfs-sample-path-test.list"
+db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq-test/"
 db_vcf_dir = os.path.join(db_location, db_vcf_list_name)
 db_name = "miniseq-named-targeted-merged-n"
 db_dir = os.path.join(db_location, db_name)
@@ -17,6 +20,7 @@ logfile = "Miniseq-log-{0}.txt".format(project)
 
 processes = []
 
+
 def logdata(stdout):
     with open(logfile, "a+") as log:
         for line in iter(stdout.readline, b''):  # b'\n'-separated lines
@@ -24,6 +28,7 @@ def logdata(stdout):
             log.write(line + "\n")
 
 
+# soon to be deprecated
 def create_configs():
     prefixes = file_utility.write_prefixes_list(workingDir, "prefixes.list")
     vcflist = file_utility.write_vcfs_list(workingDir, "vcfs.list")
@@ -35,6 +40,7 @@ def create_configs():
         raise IOError("Database updating failed due to incorrect files.")
 
 
+# soon to be deprecated
 def create_arguments_file(dbnr):
     with open("arguments.txt", "wb+") as f:
         f.write("wd:\n")
@@ -45,7 +51,7 @@ def create_arguments_file(dbnr):
         f.write(project)
 
 
-def update_vcf_list(samples, overwrite=False):
+def update_vcf_list(vcfs_list, overwrite=False):
     global db_name
     data = ""
 
@@ -56,7 +62,7 @@ def update_vcf_list(samples, overwrite=False):
 
         i = 0
         skipped = 0
-        for vcf in samples:
+        for vcf in vcfs_list:
             name = os.path.basename(vcf).rsplit('.')[0]
             if not any(name in x.rstrip() for x in data):
                 line = "V:{0} {1}".format(name, os.path.join(vcf_storage_location,
@@ -105,8 +111,7 @@ def combine_variants():
     # print proc.returncode
 
 
-def update_database():
-    prefixes, vcfslist, bamlist = create_configs()
+def update_database(vcfslist):
 
     file_utility.copy_vcf(vcfslist, vcf_storage_location, True)
     update_vcf_list(vcfslist, True)
@@ -114,9 +119,50 @@ def update_database():
     combine_variants()
 
 
+def main(args):
+    # update_database(single sample)
+    # annotate(sample)
+    # calc_coverage(sample)
+    samples = list()
+    vcfslist = list()
+
+    if args.batch:
+        #prefixes, vcfslist, bamlist = create_configs()
+        #for i in range(0, len(prefixes)):
+        #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
+        prefixes = file_utility.write_prefixes_list(workingDir, "prefixes.list")
+        for prefix in prefixes:
+            vcf = file_utility.find_file(workingDir, prefix + ".vcf")[1]
+            bam = file_utility.find_file(workingDir, prefix + ".bam")[1]
+            samples.append(Sample(prefix, vcf, bam))
+        if args.update:
+            for sample in samples:
+                vcfslist.append(sample.vcflocation)
+            update_database(vcfslist)
+
+    else:
+        for sample in args.samples:
+            vcfname, location = file_utility.find_file(workingDir, sample + ".vcf")
+            bamname, bamlocation = file_utility.find_file(workingDir, sample + ".bam")
+            samp = Sample(sample, location, bamlocation)
+            samples.append(samp)
+
+
 if __name__ == "__main__":
     try:
-        update_database()
+        parser = argparse.ArgumentParser(prog="MiniSeq pipeline command-line tool.")
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument("-b", "--batch",
+                            help="Find all unique .vcf files and their matching .bams."
+                                 "Program will only run if each vcf has a matching .bam file.",
+                            action="store_true")
+        group.add_argument("-s", "--samples",
+                            help="Followed by a list of unique sample identifiers e.g. "
+                                 "-s E0000001 E000002 E0000003 which are to be run through the pipeline.",
+                            action="store", nargs='+', type=str)
+        parser.add_argument("-u", "--update", action="store_true")
+        args = parser.parse_args()
+        main(args)
     except Exception:
         raise
     finally:

@@ -8,6 +8,16 @@ commands = ['WriteVcfs', 'CopyVcfs']
 duplicates = 0
 
 
+def find_file(main_dir, filename):
+    assert os.path.exists(main_dir)
+
+    for (dirpath, dirnames, files) in os.walk(main_dir):
+        for name in files:
+            if name == filename:
+                return name, os.path.join(dirpath, name)
+        return None
+
+
 def find_filetype(dir, filetype):
     """
     Will find all files of a certain type (e.g. .vcf or .bam files) in a directory.
@@ -31,9 +41,9 @@ def find_filetype(dir, filetype):
     return unique_files
 
 
-def write_filelist(dir, output, file_paths):
+def write_filelist(dir, file_name, file_paths):
     try:
-        with open(os.path.join(dir, output), "wb+") as f:
+        with open(os.path.join(dir, file_name), "wb+") as f:
             all_paths = list()
             file_paths.sort(key=lambda pair: pair[0])
             for file_path_pair in file_paths:
