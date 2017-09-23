@@ -23,7 +23,7 @@ class JsonHandler:
         return response, response.json()
 
     def get_genes_per_panel(self, panel):
-        q, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/get_panel/"+panel.panel_id)
+        q, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/get_panel/" + panel.panel_id)
         print("Got {0} genes for panel '{1}'".format(len(data['result']['Genes']), panel.name))
         return q, data
 
@@ -68,7 +68,7 @@ class JsonHandler:
     def get_all_panels(self, external=True):
         latest_panels = list()
         json_response, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
-                           [{'format','json'}])
+                                         [{'format', 'json'}])
         print("Got all panels ({0}).".format(len(data['result'])))
         if external:
             for panel in data['result']:
@@ -79,8 +79,8 @@ class JsonHandler:
                 self.panels.append(g_panel)  # append only if new
                 time.sleep(1)  # sleep for 1 second to avoid DDoS safeguards
                 self.save_panel(g_panel, self.json_dir)
-            # TODO: Check for version differences in panels
-            # if latest_panels and load_panels (self.panels) don't match, update the .json and .genes file/MySQL DB
+                # TODO: Check for version differences in panels
+                # if latest_panels and load_panels (self.panels) don't match, update the .json and .genes file/MySQL DB
         else:
             self.load_panels(self.json_dir)
         return self.panels

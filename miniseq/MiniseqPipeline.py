@@ -129,8 +129,8 @@ def main(args):
     vcfslist = list()
 
     if args.batch:
-        #prefixes, vcfslist, bamlist = create_configs()
-        #for i in range(0, len(prefixes)):
+        # prefixes, vcfslist, bamlist = create_configs()
+        # for i in range(0, len(prefixes)):
         #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
         prefixes = file_utility.write_prefixes_list(workingDir, "prefixes.list")
         for prefix in prefixes:
@@ -163,12 +163,12 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(prog="MiniSeq pipeline command-line tool.")
         group = parser.add_mutually_exclusive_group()
         group.add_argument("-b", "--batch",
-                            help="Find all unique .vcf files and their matching .bams."
-                                 "Program will only run if each vcf has a matching .bam file.",
-                            action="store_true")
+                           help="Find all unique .vcf files and their matching .bams."
+                                "Program will only run if each vcf has a matching .bam file.",
+                           action="store_true")
         group.add_argument("-s", "--samples",
                            help="Followed by a list of unique sample identifiers e.g. "
-                                 "-s E0000001 E000002 E0000003 which are to be run through the pipeline.",
+                                "-s E0000001 E000002 E0000003 which are to be run through the pipeline.",
                            action="store", nargs='+', type=str)
         group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
                                                "Automatically updates the variant database.",

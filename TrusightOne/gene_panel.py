@@ -16,7 +16,8 @@ class GenePanel:
             self.genes.append(gene)
 
     def __str__(self):
-        return "Name={0}, Id={1}, JSON={2}, Total genes={3}".format(self.name, self.panel_id, self.json, len(self.genes))
+        return "Name={0}, Id={1}, JSON={2}, Total genes={3}" \
+            .format(self.name, self.panel_id, self.json, len(self.genes))
 
 
 def replace_illegal_chars(text):
