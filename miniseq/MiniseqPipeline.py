@@ -8,9 +8,9 @@ import file_utility
 # TODO: store variables in a config file
 from sample import Sample
 
-vcf_storage_location = "/media/kasutaja/data/TSC_temp/illumina_pipe/vcfs/"
-db_vcf_list_name = "vcfs-sample-path-test.list"
-db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq-test/"
+vcf_storage_location = "/media/kasutaja/data/TSC_temp/miniseq_pipe/vcfs/"
+db_vcf_list_name = "vcfs-sample-path.list"
+db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq/"
 db_vcf_dir = os.path.join(db_location, db_vcf_list_name)
 db_name = "miniseq-named-targeted-merged-n"
 db_dir = os.path.join(db_location, db_name)
@@ -25,7 +25,8 @@ def logdata(stdout):
     with open(logfile, "a+") as log:
         for line in iter(stdout.readline, b''):  # b'\n'-separated lines
             # log.write(time.time() + "\t" + line + "\n")
-            log.write(line + "\n")
+            log.write(line)
+            print ("{}".format(line.rstrip()))
 
 
 # soon to be deprecated
@@ -83,17 +84,17 @@ def combine_variants():
                        '-T CombineVariants '
                        '-R /media/kasutaja/data/NGS_data/hg19/ucsc.hg19.fasta '
                        '-V {0}{1} '
-                       '-L /media/kasutaja/data/TSC_temp/illumina_pipe/coverage/trusight_cancer_manifest_aUsed.bed '
+                       '-L /media/kasutaja/data/TSC_temp/miniseq_pipe/coverage/trusight_cancer_manifest_aUsed.bed '
                        '-o {2}{3}.vcf '
                        '-ip 10 '
-                       '--genotypemergeoption UNIQUIFY '.format(db_location, db_vcf_list_name, db_location, db_name))
+                       '--genotypemergeoption UNIQUIFY '.format(db_location, db_vcf_list_name, db_location, db_name,
+                                                                logfile))
 
-    print args
-    proc = subprocess.Popen(args, shell=False, stdout=subprocess.PIPE)
+    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
 
-    with proc.stdout:
-        logdata(proc.stdout)
+    with proc.stderr:
+        logdata(proc.stderr)
     proc.wait()
 
     args = shlex.split('java -Xmx10g -jar /home/sander/NGS_programs/GenomeAnalysisTK-3.6/GenomeAnalysisTK.jar '
@@ -102,18 +103,19 @@ def combine_variants():
                        '-V {0}{1}.vcf '
                        '-F CHROM -F POS -F REF -F ALT -F AC -F HET -F HOM-VAR '
                        '--splitMultiAllelic --showFiltered '
-                       '-o {2}{3}.txt '.format(db_location, db_name, db_location, db_name))
+                       '-o {2}{3}.txt '.format(db_location, db_name, db_location, db_name, logfile))
 
-    proc = subprocess.Popen(args, shell=False, stdout=subprocess.PIPE)
-    with proc.stdout:
-        logdata(proc.stdout)
+    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+    processes.append(proc)
+    with proc.stderr:
+        logdata(proc.stderr)
     proc.wait()
     # print proc.returncode
+    # proc.communicate()
 
 
 def update_database(vcfslist):
-
-    file_utility.copy_vcf(vcfslist, vcf_storage_location, True)
+    file_utility.copy_vcf(vcfslist, vcf_storage_location, False)
     update_vcf_list(vcfslist, True)
     # create_arguments_file()
     combine_variants()
@@ -139,7 +141,15 @@ def main(args):
             for sample in samples:
                 vcfslist.append(sample.vcflocation)
             update_database(vcfslist)
+        for sample in samples:
+            # annotate(sample)
+            # calc_coverage(sample)
+            # create_excel_table(sample)
+            pass
 
+    elif args.old:
+        prefixes, vcfslist, bamlist = create_configs()
+        update_database(vcfslist)
     else:
         for sample in args.samples:
             vcfname, location = file_utility.find_file(workingDir, sample + ".vcf")
@@ -157,9 +167,12 @@ if __name__ == "__main__":
                                  "Program will only run if each vcf has a matching .bam file.",
                             action="store_true")
         group.add_argument("-s", "--samples",
-                            help="Followed by a list of unique sample identifiers e.g. "
+                           help="Followed by a list of unique sample identifiers e.g. "
                                  "-s E0000001 E000002 E0000003 which are to be run through the pipeline.",
-                            action="store", nargs='+', type=str)
+                           action="store", nargs='+', type=str)
+        group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
+                                               "Automatically updates the variant database.",
+                           action="store_true")
         parser.add_argument("-u", "--update", action="store_true")
         args = parser.parse_args()
         main(args)
@@ -167,5 +180,8 @@ if __name__ == "__main__":
         raise
     finally:
         for p in processes:
-            p.kill()
-# MiniSeq: /media/kasutaja/ge_ngs/smb-share:server=srvfail,share=ge_ngs/MiniSeq
+            try:
+                p.terminate()
+            except OSError:
+                pass  # process is already dead
+                # MiniSeq: /media/kasutaja/ge_ngs/smb-share:server=srvfail,share=ge_ngs/MiniSeq

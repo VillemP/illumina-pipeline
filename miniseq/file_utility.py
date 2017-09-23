@@ -9,6 +9,12 @@ duplicates = 0
 
 
 def find_file(main_dir, filename):
+    """
+    Will find the first file with the exact name match in a dir tree. Otherwise returns None.
+    :param main_dir: The upmost directory to start the search in, will walk through subdirectories
+    :param filename: The filename to be searched.
+    :return: tuple(filename, directory)
+    """
     assert os.path.exists(main_dir)
 
     for (dirpath, dirnames, files) in os.walk(main_dir):
@@ -51,6 +57,7 @@ def write_filelist(dir, file_name, file_paths):
                 all_paths.append(full_path)
                 # print (full_path)
                 f.write(full_path + "\n")
+            print("Writing filelist to {}".format(os.path.join(dir, file_name)))
             print("Total files: {}".format(len(file_paths)))
             print("Duplicates: {}".format(duplicates))
 
@@ -94,7 +101,7 @@ def write_bams_list(dir, output):
 
 
 def copy_vcf(files, dest, overwrite=False):
-    assert os.path.exists(dest)
+    assert os.path.exists(dest), "Destination {}".format(dest)
     nr = len(files)
     i = 0
     skipped = 0
