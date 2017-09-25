@@ -6,7 +6,7 @@ import subprocess
 import configvalidator
 import file_utility
 # TODO: store variables in a config file
-from sample import Sample
+import pipeline_utility.sample
 
 vcf_storage_location = "/media/kasutaja/data/TSC_temp/miniseq_pipe/vcfs/"
 db_vcf_list_name = "vcfs-sample-path.list"
@@ -136,7 +136,7 @@ def main(args):
         for prefix in prefixes:
             vcf = file_utility.find_file(workingDir, prefix + ".vcf")[1]
             bam = file_utility.find_file(workingDir, prefix + ".bam")[1]
-            samples.append(Sample(prefix, vcf, bam))
+            samples.append(pipeline_utility.sample.Sample(prefix, vcf, bam))
         if args.update:
             for sample in samples:
                 vcfslist.append(sample.vcflocation)
@@ -154,7 +154,7 @@ def main(args):
         for sample in args.samples:
             vcfname, location = file_utility.find_file(workingDir, sample + ".vcf")
             bamname, bamlocation = file_utility.find_file(workingDir, sample + ".bam")
-            samp = Sample(sample, location, bamlocation)
+            samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
 
 

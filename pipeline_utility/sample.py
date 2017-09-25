@@ -1,7 +1,7 @@
 import os
 
 
-class Sample():
+class Sample:
     def __init__(self, name, vcflocation, bamlocation):
         self.name = name.rstrip()
         self.vcflocation = vcflocation.rstrip()

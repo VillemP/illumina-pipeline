@@ -67,10 +67,10 @@ class JsonHandler:
 
     def get_all_panels(self, external=True):
         latest_panels = list()
-        json_response, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
-                                         [{'format', 'json'}])
-        print("Got all panels ({0}).".format(len(data['result'])))
         if external:
+            json_response, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
+                                             [{'format', 'json'}])
+            print("Got all panels ({0}).".format(len(data['result'])))
             for panel in data['result']:
                 g_panel = GenePanel(panel)
                 genes_json, genes = self.get_genes_per_panel(g_panel)

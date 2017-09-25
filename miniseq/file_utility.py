@@ -15,7 +15,7 @@ def find_file(main_dir, filename):
     :param filename: The filename to be searched.
     :return: tuple(filename, directory)
     """
-    assert os.path.exists(main_dir)
+    assert os.path.exists(main_dir), "Path {} does not exist.".format(main_dir)
 
     for (dirpath, dirnames, files) in os.walk(main_dir):
         for name in files:
@@ -32,7 +32,7 @@ def find_filetype(dir, filetype):
     :param filetype: String of filetype to search for (e.g. .vcf or .bam)
     :return: list of tuples of file name and file directory
     """
-    assert os.path.exists(dir)
+    assert os.path.exists(dir), "Path {} does not exist.".format(dir)
     duplicates = 0
     # unique_files = dict([])
     unique_files = list(())

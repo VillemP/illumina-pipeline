@@ -1,3 +1,6 @@
+import os
+from distutils.version import LooseVersion as Version
+
 from TrusightOne.jsonhandler import JsonHandler
 
 # import pickle
@@ -8,8 +11,14 @@ json_dir = "/media/kasutaja/data/NGS_data/panels_json_main/"
 def main():
     handler = JsonHandler(json_dir)
     panels = handler.get_all_panels(external=False)
-    for panel in panels:
-        print(panel)
+
+    currentlist = [p for p in panels if p.version >= Version("1.0")]
+    currentlist.sort(key=lambda panel: (panel.diseasegroup, panel.diseasesubgroup))
+
+    with open(os.path.join(json_dir, "query.txt"), "w+") as f:
+        for panel in currentlist:
+            f.write(panel.as_table + '\n')
+
 
 
 if __name__ == "__main__":
