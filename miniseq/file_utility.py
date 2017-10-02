@@ -115,7 +115,7 @@ def copy_vcf(files, dest, overwrite=False):
                 shutil.copy(path, dest)
                 i += 1
             else:
-                "File does not exist: " + str(path)
+                print "File does not exist: " + str(path)
                 skipped += 1
         else:
             skipped += 1

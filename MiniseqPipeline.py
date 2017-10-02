@@ -3,8 +3,8 @@ import os
 import shlex
 import subprocess
 
-import configvalidator
-import file_utility
+import miniseq.configvalidator
+import miniseq.file_utility
 # TODO: store variables in a config file
 import pipeline_utility.sample
 
@@ -31,11 +31,11 @@ def logdata(stdout):
 
 # soon to be deprecated
 def create_configs():
-    prefixes = file_utility.write_prefixes_list(workingDir, "prefixes.list")
-    vcflist = file_utility.write_vcfs_list(workingDir, "vcfs.list")
-    bamlist = file_utility.write_bams_list(workingDir, "bams.list")
+    prefixes = miniseq.file_utility.write_prefixes_list(workingDir, "prefixes.list")
+    vcflist = miniseq.file_utility.write_vcfs_list(workingDir, "vcfs.list")
+    bamlist = miniseq.file_utility.write_bams_list(workingDir, "bams.list")
 
-    if configvalidator.validate_config("bams.list", "vcfs.list", "prefixes.list"):
+    if miniseq.configvalidator.validate_config("bams.list", "vcfs.list", "prefixes.list"):
         return prefixes, vcflist, bamlist
     else:
         raise IOError("Database updating failed due to incorrect files.")
@@ -59,7 +59,7 @@ def update_vcf_list(vcfs_list, overwrite=False):
     with open(db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
         # db_vcfs.seek(0)
-        curr_len = file_utility.file_len(db_vcf_dir)
+        curr_len = miniseq.file_utility.file_len(db_vcf_dir)
 
         i = 0
         skipped = 0
@@ -114,8 +114,12 @@ def combine_variants():
     # proc.communicate()
 
 
-def update_database(vcfslist):
-    file_utility.copy_vcf(vcfslist, vcf_storage_location, False)
+def update_database(samples, replace):
+    assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
+    vcfslist = list()
+    for sample in samples:
+        vcfslist.append(sample.vcflocation)
+    miniseq.file_utility.copy_vcf(vcfslist, vcf_storage_location, replace)
     update_vcf_list(vcfslist, True)
     # create_arguments_file()
     combine_variants()
@@ -128,19 +132,21 @@ def main(args):
     samples = list()
     vcfslist = list()
 
+    # True if replace, False if --no_replace
+    if not args.no_replace:
+        print("WARNING: VCF files that have overlapping names were not copied into the database! "
+              "Old variant files still exist.")
+
     if args.batch:
         # prefixes, vcfslist, bamlist = create_configs()
         # for i in range(0, len(prefixes)):
         #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
-        prefixes = file_utility.write_prefixes_list(workingDir, "prefixes.list")
+        prefixes = miniseq.file_utility.write_prefixes_list(workingDir, "prefixes.list")
         for prefix in prefixes:
-            vcf = file_utility.find_file(workingDir, prefix + ".vcf")[1]
-            bam = file_utility.find_file(workingDir, prefix + ".bam")[1]
+            vcf = miniseq.file_utility.find_file(workingDir, prefix + ".vcf")[1]
+            bam = miniseq.file_utility.find_file(workingDir, prefix + ".bam")[1]
             samples.append(pipeline_utility.sample.Sample(prefix, vcf, bam))
-        if args.update:
-            for sample in samples:
-                vcfslist.append(sample.vcflocation)
-            update_database(vcfslist)
+        update_database(samples, args.no_replace)
         for sample in samples:
             # annotate(sample)
             # calc_coverage(sample)
@@ -149,13 +155,16 @@ def main(args):
 
     elif args.old:
         prefixes, vcfslist, bamlist = create_configs()
-        update_database(vcfslist)
+        for i in range(0, len(prefixes)):
+            samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
+        update_database(samples, args.no_replace)
     else:
         for sample in args.samples:
-            vcfname, location = file_utility.find_file(workingDir, sample + ".vcf")
-            bamname, bamlocation = file_utility.find_file(workingDir, sample + ".bam")
+            vcfname, location = miniseq.file_utility.find_file(workingDir, sample + ".vcf")
+            bamname, bamlocation = miniseq.file_utility.find_file(workingDir, sample + ".bam")
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
+            update_database(samples, args.no_replace)
 
 
 if __name__ == "__main__":
@@ -168,12 +177,14 @@ if __name__ == "__main__":
                            action="store_true")
         group.add_argument("-s", "--samples",
                            help="Followed by a list of unique sample identifiers e.g. "
-                                "-s E0000001 E000002 E0000003 which are to be run through the pipeline.",
+                                "-s E0000001 E000002 E0000003 which are to be run through the pipeline. "
+                                "Will only run if samples have a matching vcf and bam file.",
                            action="store", nargs='+', type=str)
         group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
                                                "Automatically updates the variant database.",
                            action="store_true")
-        parser.add_argument("-u", "--update", action="store_true")
+        parser.add_argument("-u", "--no_replace", action="store_false", default=True)
+
         args = parser.parse_args()
         main(args)
     except Exception:

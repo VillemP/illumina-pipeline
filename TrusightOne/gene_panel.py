@@ -58,16 +58,18 @@ class GenePanel(object):
 
     @property
     def as_table(self):
-        return "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}" \
+        return "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}\t{15}" \
             .format(self.name, self.panel_id, self.version, self.diseasegroup, self.diseasesubgroup,
                     len(self.genes),
                     len(self.green_genes),
                     round(self.avg_coverage_GREEN, 2),
                     [g.name.encode("ascii") for g in self.green_genes],
+                    len([g for g in self.tso_genes if g.evidence_level == gene.GREEN]),
                     [g.name.encode("ascii") for g in self.tso_genes if g.evidence_level == gene.GREEN],
                     len(self.amber_genes),
                     round(self.avg_coverage_AMBER, 2),
                     [g.name.encode("ascii") for g in self.amber_genes],
+                    len([g for g in self.tso_genes if g.evidence_level == gene.AMBER]),
                     [g.name.encode("ascii") for g in self.tso_genes if g.evidence_level == gene.AMBER])
 
 
