@@ -8,7 +8,7 @@ json_dir = "/media/kasutaja/data/NGS_data/panels_json_main/"
 
 def loadPanels():
     handler = JsonHandler(json_dir)
-    panels = handler.get_all_panels(external=False)
+    panels = handler.get_all_panels(external=True)
 
     # Selecting and sorting for tables above version 1.0, ordered by diseasegroup and subgroup
     currentlist = [p for p in panels if p.version >= Version("1.0")]

@@ -10,6 +10,7 @@ class GenePanel(object):
         self.panel_id = panel_json['Panel_Id']
         self.diseasegroup = panel_json['DiseaseGroup']
         self.diseasesubgroup = panel_json['DiseaseSubGroup']
+        # Actually an "unpacked" JSON, so it's a dict
         self.json = panel_json
         self.genes = list()
         self.version = LooseVersion(panel_json['CurrentVersion'])
@@ -22,8 +23,8 @@ class GenePanel(object):
             self.genes.append(g)
 
     def __str__(self):
-        return "Name={0}, Id={1}, JSON={2}, Total genes={3}" \
-            .format(self.name, self.panel_id, self.json, len(self.genes))
+        return "Name={0}, Id={1}, Version={2}, Total genes={3}" \
+            .format(self.name, self.panel_id, self.version, len(self.genes))
 
     @property
     def tso_genes(self):
@@ -85,6 +86,6 @@ def compare_versions(panel1, panel2):
     Returns True if panel1 version is greater or equal to the version of panel2.
     :rtype: Boolean
     """
-    if panel1.version >= panel2.version:
+    if panel1.version > panel2.version:
         return True
     return False

@@ -21,7 +21,7 @@ def find_file(main_dir, filename):
         for name in files:
             if name == filename:
                 return name, os.path.join(dirpath, name)
-        return None
+    return None
 
 
 def find_filetype(dir, filetype):
