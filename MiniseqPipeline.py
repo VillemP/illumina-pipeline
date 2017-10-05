@@ -8,6 +8,8 @@ import miniseq.file_utility
 # TODO: store variables in a config file
 import pipeline_utility.sample
 
+# TODO: Create a config file system
+# TODO: Run a set of commands from STDOUT -> STDIN
 vcf_storage_location = "/media/kasutaja/data/TSC_temp/miniseq_pipe/vcfs/"
 db_vcf_list_name = "vcfs-sample-path.list"
 db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq/"
@@ -195,4 +197,3 @@ if __name__ == "__main__":
                 p.terminate()
             except OSError:
                 pass  # process is already dead
-                # MiniSeq: /media/kasutaja/ge_ngs/smb-share:server=srvfail,share=ge_ngs/MiniSeq
