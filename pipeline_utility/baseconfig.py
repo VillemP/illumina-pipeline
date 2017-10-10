@@ -5,28 +5,22 @@ import yaml
 
 
 class BaseConfig(yaml.YAMLObject):
-    __hidden_fields = ["_filepath"]
+    hidden_fields = ['_filepath']
     yaml_tag = u"!BaseConfig"
     yaml_loader = yaml.SafeLoader
     yaml_dumper = yaml.SafeDumper
     yaml_flow_style = False
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, **kwargs):
         super(BaseConfig, self).__init__()
-        # self.yaml_flow_style =
         self._filepath = filepath
+
+    def __str__(self):
+        return "Config:\n{}".format(self.__dict__)
 
     @property
     def filepath(self):
         return self._filepath
-
-    @classmethod
-    def to_yaml(cls, dumper, data):
-        new_data = deepcopy(data)
-        for item in cls.__hidden_fields:
-            del new_data.__dict__[item]
-        return dumper.represent_yaml_object(cls.yaml_tag, new_data, cls,
-                                            flow_style=cls.yaml_flow_style)
 
     def save(self):
         with open(self._filepath, "wb+") as f:
@@ -40,16 +34,34 @@ class BaseConfig(yaml.YAMLObject):
             self.save()
             print("Created a new empty config file!")
         with open(self._filepath, "r") as f:
-            yaml.safe_load(f)
-        return self
+            obj = yaml.load(f)
+        return obj
+
+    @classmethod
+    def to_yaml(cls, dumper, data):
+        new_data = deepcopy(data)
+        for item in cls.hidden_fields:
+            del new_data.__dict__[item]
+        return dumper.represent_yaml_object(cls.yaml_tag, new_data, cls,
+                                            flow_style=cls.yaml_flow_style)
+
+    # Static constructor method in class for clarity
+    @classmethod
+    def cfg_constructor(cls, loader, node):
+        # values = loader.construct_mapping(node, deep=True)
+        # return cls(values)
+        instance = cls.__new__(cls)
+        yield instance
+        state = loader.construct_mapping(node, deep=True)
+        instance.__init__(loader.name, **state)
 
 
 vcf_storage_location = "/media/kasutaja/data/TSC_temp/miniseq_pipe/vcfs/"
 db_vcf_list_name = "vcfs-sample-path.list"
 db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq/"
 db_vcf_dir = os.path.join(db_location, db_vcf_list_name)
-db_name = "miniseq-named-targeted-merged-n"
-db_dir = os.path.join(db_location, db_name)
+db_name_samples = "miniseq-named-targeted-merged-n"
+db_dir = os.path.join(db_location, db_name_samples)
 workingDir = os.getcwd()
 project = os.path.basename(os.path.normpath(workingDir))
 logfile = "Miniseq-log-{0}.txt".format(project)

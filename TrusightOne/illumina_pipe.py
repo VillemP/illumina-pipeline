@@ -10,22 +10,26 @@ from pipeline_utility.baseconfig import BaseConfig
 class TruesightOneConfig(BaseConfig):
     yaml_tag = u"!TruesightOneConfig"
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, json_dir='', name='', important_data=''):
         super(TruesightOneConfig, self).__init__(filepath)
-        self.json_dir = ""
-        self.name = "asdasd"
+        self.json_dir = json_dir
+        self.name = name
+        self.important_data = important_data
 
 
 json_dir = "/media/kasutaja/data/NGS_data/panels_json_main/"
 
 
-def createCfg():
+def loadCfg():
     workingdir = os.getcwd()
-    # cfg = TruesightOneConfig(os.path.join(workingdir, "tso.yaml"))
-    with open(os.path.join(workingdir, "tso.yaml"), "r") as f:
-        cfg = yaml.safe_load(f)
-    print("JsonDir = " + cfg.json_dir)
-    print cfg.name
+    cfg_path = os.path.join(workingdir, "tso.yaml")
+
+    yaml.add_constructor(TruesightOneConfig.yaml_tag, TruesightOneConfig.cfg_constructor)
+
+    cfg = TruesightOneConfig(cfg_path)
+    cfg = cfg.load()
+
+    return cfg
 
 
 def loadPanels():
@@ -42,7 +46,7 @@ def loadPanels():
 
 
 def main():
-    createCfg()
+    loadCfg()
     #loadPanels()
 
 
