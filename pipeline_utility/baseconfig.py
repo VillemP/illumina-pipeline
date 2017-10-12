@@ -54,14 +54,3 @@ class BaseConfig(yaml.YAMLObject):
         yield instance
         state = loader.construct_mapping(node, deep=True)
         instance.__init__(loader.name, **state)
-
-
-vcf_storage_location = "/media/kasutaja/data/TSC_temp/miniseq_pipe/vcfs/"
-db_vcf_list_name = "vcfs-sample-path.list"
-db_location = "/media/kasutaja/data/NGS_data/var_db_miniseq/"
-db_vcf_dir = os.path.join(db_location, db_vcf_list_name)
-db_name_samples = "miniseq-named-targeted-merged-n"
-db_dir = os.path.join(db_location, db_name_samples)
-workingDir = os.getcwd()
-project = os.path.basename(os.path.normpath(workingDir))
-logfile = "Miniseq-log-{0}.txt".format(project)

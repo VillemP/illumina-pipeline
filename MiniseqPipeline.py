@@ -6,10 +6,11 @@ import subprocess
 import yaml
 
 import miniseq.configvalidator
-import miniseq.file_utility
+import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
 from miniseq.miniseqconfig import MiniseqConfig
+from pipeline_utility import vcf_manipulator
 
 processes = []
 yaml.add_constructor(MiniseqConfig.yaml_tag, MiniseqConfig.cfg_constructor)
@@ -19,6 +20,9 @@ config = config.load()
 db_name_samples = config.db_name
 workingDir = os.getcwd()
 project = os.path.basename(os.path.normpath(workingDir))
+
+assert os.path.exists(config.annotator)
+
 
 def logdata(stdout):
     with open(config.logfile, "a+") as log:
@@ -30,9 +34,9 @@ def logdata(stdout):
 
 # soon to be deprecated
 def create_configs():
-    prefixes = miniseq.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-    vcflist = miniseq.file_utility.write_vcfs_list(workingDir, "vcfs.list")
-    bamlist = miniseq.file_utility.write_bams_list(workingDir, "bams.list")
+    prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
+    vcflist = pipeline_utility.file_utility.write_vcfs_list(workingDir, "vcfs.list")
+    bamlist = pipeline_utility.file_utility.write_bams_list(workingDir, "bams.list")
 
     if miniseq.configvalidator.validate_config("bams.list", "vcfs.list", "prefixes.list"):
         return prefixes, vcflist, bamlist
@@ -58,7 +62,7 @@ def update_vcf_list(vcfs_list, overwrite=False):
     with open(config.db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
         # db_vcfs.seek(0)
-        curr_len = miniseq.file_utility.file_len(config.db_vcf_dir)
+        curr_len = pipeline_utility.file_utility.file_len(config.db_vcf_dir)
 
         i = 0
         skipped = 0
@@ -79,16 +83,21 @@ def update_vcf_list(vcfs_list, overwrite=False):
 
 
 def combine_variants():
-    args = shlex.split('java -Xmx10g -jar /home/sander/NGS_programs/GenomeAnalysisTK-3.6/GenomeAnalysisTK.jar '
+    # Combining variant files into a single reference to be used for statistical purposes
+    # ip = interval padding, required for inclusion of splicing variants (bed targets are too precise for exons)
+    args = shlex.split('java -Xmx10g -jar {0} '
                        '-T CombineVariants '
-                       '-R /media/kasutaja/data/NGS_data/hg19/ucsc.hg19.fasta '
-                       '-V {0}{1} '
-                       '-L /media/kasutaja/data/TSC_temp/miniseq_pipe/coverage/trusight_cancer_manifest_aUsed.bed '
-                       '-o {2}{3}.vcf '
-                       '-ip 10 '
-                       '--genotypemergeoption UNIQUIFY '.format(config.db_directory, config.db_vcf_list_name,
-                                                                config.db_directory, db_name_samples,
-                                                                config.logfile))
+                       '-R {1} '
+                       '-V {2} '
+                       '-L {3} '
+                       '-o {4} '
+                       '-ip {5} '
+                       '-log {6} '
+                       '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, config.db_vcf_dir,
+                                                               config.targetfile,
+                                                               os.path.join(config.db_directory,
+                                                                            db_name_samples + ".vcf"),
+                                                               config.padding, config.logfile))
 
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
@@ -97,13 +106,14 @@ def combine_variants():
         logdata(proc.stderr)
     proc.wait()
 
-    args = shlex.split('java -Xmx10g -jar /home/sander/NGS_programs/GenomeAnalysisTK-3.6/GenomeAnalysisTK.jar '
-                       '-T VariantsToTable -R '
-                       '/media/kasutaja/data/NGS_data/hg19/ucsc.hg19.fasta '
-                       '-V {0}{1}.vcf '
+    args = shlex.split('java -Xmx10g -jar {0} '
+                       '-T VariantsToTable '
+                       '-R {1} '
+                       '-V {2}{3}.vcf '
                        '-F CHROM -F POS -F REF -F ALT -F AC -F HET -F HOM-VAR '
                        '--splitMultiAllelic --showFiltered '
-                       '-o {2}{3}.txt '.format(config.db_directory, db_name_samples, config.db_directory,
+                       '-o {4}{5}.txt '.format(config.toolkit, config.reference, config.db_directory, db_name_samples,
+                                               config.db_directory,
                                                db_name_samples, config.logfile))
 
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
@@ -120,20 +130,64 @@ def update_database(samples, replace):
     vcfslist = list()
     for sample in samples:
         vcfslist.append(sample.vcflocation)
-    miniseq.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
+    pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
     update_vcf_list(vcfslist, True)
-    # create_arguments_file()
     combine_variants()
 
 
+def annotate(sample):
+    # Reduce the amount of variants to work with
+    outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
+    args = shlex.split("java -Xmx10g -jar {0} "
+                       "-T SelectVariants "
+                       "-R {1} "
+                       "-V {2} "
+                       "-L {3} "
+                       "-o {4} "
+                       "-ip {5}".format(config.toolkit, config.reference,
+                                        sample.vcflocation, config.targetfile,
+                                        outfile, config.padding))
+
+    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+    processes.append(proc)
+
+    with proc.stderr:
+        logdata(proc.stderr)
+    proc.wait()
+    if proc.returncode == 0:
+        sample.reduced_variants_vcf = outfile
+
+    args = shlex.split("perl {0} {1} {2} -buildver hg19 "
+                       "-out {3} "
+                       "-remove -protocol "
+                       "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20150629 "
+                       "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                       "-operation g,f,f,f,f,f,f "
+                       "-nastring . "
+                       "-otherinfo "
+                       "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
+
+    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+    processes.append(proc)
+
+    with proc.stderr:
+        logdata(proc.stderr)
+    proc.wait()
+    with open(sample.name + "hg19_multianno.vcf") as annotated_file:
+        proc = subprocess.Popen(vcf_manipulator.annotate(annotated_file,
+                                                         os.path.join(config.custom_annotation_dir,
+                                                                      "gene.omim_disease_name.synonyms.txt",
+                                                                      ), "Disease.name"),
+                                shell=False)
+        proc.communicate()
+
+
+
 def main(args):
-    # update_database(single sample)
-    # annotate(sample)
-    # calc_coverage(sample)
     samples = list()
     vcfslist = list()
 
-    # True if replace, False if --no_replace
+    # True if replace, False if --no_replace, passed as an argument in update_database()
     if not args.no_replace:
         print("WARNING: VCF files that have overlapping names were not copied into the database! "
               "Old variant files still exist.")
@@ -142,10 +196,10 @@ def main(args):
         # prefixes, vcfslist, bamlist = create_configs()
         # for i in range(0, len(prefixes)):
         #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
-        prefixes = miniseq.file_utility.write_prefixes_list(workingDir, "prefixes.list")
+        prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
         for prefix in prefixes:
-            vcf = miniseq.file_utility.find_file(workingDir, prefix + ".vcf")[1]
-            bam = miniseq.file_utility.find_file(workingDir, prefix + ".bam")[1]
+            vcf = pipeline_utility.file_utility.find_file(workingDir, prefix + ".vcf")[1]
+            bam = pipeline_utility.file_utility.find_file(workingDir, prefix + ".bam")[1]
             samples.append(pipeline_utility.sample.Sample(prefix, vcf, bam))
         update_database(samples, args.no_replace)
         for sample in samples:
@@ -161,11 +215,16 @@ def main(args):
         update_database(samples, args.no_replace)
     elif args.samples:
         for sample in args.samples:
-            vcfname, location = miniseq.file_utility.find_file(workingDir, sample + ".vcf")
-            bamname, bamlocation = miniseq.file_utility.find_file(workingDir, sample + ".bam")
+            vcfname, location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")
+            bamname, bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
             update_database(samples, args.no_replace)
+        for sample in samples:
+            annotate(sample)
+            # calc_coverage(sample)
+            # create_excel_table(sample)
+            pass
     else:
         print "No valid command input."
         print "Printing cfg values."

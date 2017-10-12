@@ -5,7 +5,7 @@ import requests
 
 import TrusightOne.gene_panel
 from TrusightOne.gene_panel import GenePanel
-from miniseq import file_utility
+from pipeline_utility import file_utility
 
 
 # TODO: Currently presumes data is static and files will not go missing. Check for validity of JSONs
