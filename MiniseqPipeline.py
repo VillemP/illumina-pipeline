@@ -12,6 +12,11 @@ import pipeline_utility.sample
 from miniseq.miniseqconfig import MiniseqConfig
 from pipeline_utility import vcf_manipulator
 
+try:
+    from cStringIO import StringIO
+except:
+    from StringIO import StringIO
+
 processes = []
 yaml.add_constructor(MiniseqConfig.yaml_tag, MiniseqConfig.cfg_constructor)
 cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'miniseq.yaml')
@@ -125,62 +130,96 @@ def combine_variants():
     # proc.communicate()
 
 
-def update_database(samples, replace):
-    assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
-    vcfslist = list()
-    for sample in samples:
-        vcfslist.append(sample.vcflocation)
-    pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
-    update_vcf_list(vcfslist, True)
-    combine_variants()
+def update_database(samples, replace, testmode):
+    if not testmode:
+        assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
+        vcfslist = list()
+        for sample in samples:
+            vcfslist.append(sample.vcflocation)
+        pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
+        update_vcf_list(vcfslist, True)
+        combine_variants()
+    pass
 
 
-def annotate(sample):
+def annotate(sample, testmode):
     # Reduce the amount of variants to work with
-    outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
-    args = shlex.split("java -Xmx10g -jar {0} "
-                       "-T SelectVariants "
-                       "-R {1} "
-                       "-V {2} "
-                       "-L {3} "
-                       "-o {4} "
-                       "-ip {5}".format(config.toolkit, config.reference,
-                                        sample.vcflocation, config.targetfile,
-                                        outfile, config.padding))
+    if not testmode:
+        outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
+        args = shlex.split("java -Xmx10g -jar {0} "
+                           "-T SelectVariants "
+                           "-R {1} "
+                           "-V {2} "
+                           "-L {3} "
+                           "-o {4} "
+                           "-ip {5}".format(config.toolkit, config.reference,
+                                            sample.vcflocation, config.targetfile,
+                                            outfile, config.padding))
 
-    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
-    processes.append(proc)
+        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+        processes.append(proc)
 
-    with proc.stderr:
-        logdata(proc.stderr)
-    proc.wait()
-    if proc.returncode == 0:
-        sample.reduced_variants_vcf = outfile
+        with proc.stderr:
+            logdata(proc.stderr)
+        proc.wait()
+        if proc.returncode == 0:
+            sample.reduced_variants_vcf = outfile
 
-    args = shlex.split("perl {0} {1} {2} -buildver hg19 "
-                       "-out {3} "
-                       "-remove -protocol "
-                       "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20150629 "
-                       "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                       "-operation g,f,f,f,f,f,f "
-                       "-nastring . "
-                       "-otherinfo "
-                       "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
+        args = shlex.split("perl {0} {1} {2} -buildver hg19 "
+                           "-out {3} "
+                           "-remove -protocol "
+                           "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20150629 "
+                           "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                           "-operation g,f,f,f,f,f,f "
+                           "-nastring . "
+                           "-otherinfo "
+                           "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
 
-    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
-    processes.append(proc)
+        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+        processes.append(proc)
 
-    with proc.stderr:
-        logdata(proc.stderr)
-    proc.wait()
-    with open(sample.name + "hg19_multianno.vcf") as annotated_file:
-        proc = subprocess.Popen(vcf_manipulator.annotate(annotated_file,
-                                                         os.path.join(config.custom_annotation_dir,
-                                                                      "gene.omim_disease_name.synonyms.txt",
-                                                                      ), "Disease.name"),
-                                shell=False)
-        proc.communicate()
+        with proc.stderr:
+            logdata(proc.stderr)
+        proc.wait()
 
+    # annotator output file -->
+    disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
+    disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
+    hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
+    panels = os.path.join(config.custom_annotation_dir, "TSC_genepanels.txt")
+
+    args_1 = shlex.shlex(
+        "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
+    args_2 = shlex.shlex(
+        "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_nr, "Disease.nr"))
+    args_3 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), hpo, "HPO"))
+    args_4 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), panels, "Panel"))
+    args_5 = shlex.shlex('java -jar {0} '
+                         'extractFields '
+                         '- '
+                         '-e "." -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
+                         '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
+                         'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20150629 '
+                         'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
+                         .format(config.snpsift))
+
+    slx = list([args_1, args_2, args_3, args_4, args_5])
+    for arg in slx:
+        arg.whitespace_split = True
+
+    with open(sample.name + ".hg19_multianno.vcf") as annotated:
+        proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE)
+        proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
+        proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
+        proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
+        proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_4.stdout, stdout=subprocess.PIPE)
+        # proc_2.communicate()[0]
+        with open(sample.name + ".annotated.table", "w+") as table:
+            table.write(proc_5.communicate()[0])
+    if proc_5.returncode == 0:
+        sample.annotated = True
 
 
 def main(args):
@@ -201,7 +240,7 @@ def main(args):
             vcf = pipeline_utility.file_utility.find_file(workingDir, prefix + ".vcf")[1]
             bam = pipeline_utility.file_utility.find_file(workingDir, prefix + ".bam")[1]
             samples.append(pipeline_utility.sample.Sample(prefix, vcf, bam))
-        update_database(samples, args.no_replace)
+        update_database(samples, args.no_replace, args.test)
         for sample in samples:
             # annotate(sample)
             # calc_coverage(sample)
@@ -212,16 +251,16 @@ def main(args):
         prefixes, vcfslist, bamlist = create_configs()
         for i in range(0, len(prefixes)):
             samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
-        update_database(samples, args.no_replace)
+        update_database(samples, args.no_replace, args.test)
     elif args.samples:
         for sample in args.samples:
             vcfname, location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")
             bamname, bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
-            update_database(samples, args.no_replace)
+            update_database(samples, args.no_replace, args.test)
         for sample in samples:
-            annotate(sample)
+            annotate(sample, args.test)
             # calc_coverage(sample)
             # create_excel_table(sample)
             pass
@@ -248,6 +287,7 @@ if __name__ == "__main__":
                                                "Automatically updates the variant database.",
                            action="store_true")
         parser.add_argument("-r", "--no_replace", action="store_false", default=True)
+        parser.add_argument("-t", "--test", action="store_true", default=False)
 
         args = parser.parse_args()
         main(args)

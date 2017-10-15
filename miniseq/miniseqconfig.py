@@ -10,7 +10,7 @@ class MiniseqConfig(BaseConfig):
     def __init__(self, filepath, vcf_storage_location='', db_vcf_list_name='', db_directory='', db_name='',
                  logfile="Miniseq-log.txt", toolkit='directory to GATK', reference='directory to ucsc.hg19.fasta',
                  targetfile=".bed target file", padding=10, annotator=None, annotation_db=None,
-                 custom_annotation_dir=None):
+                 custom_annotation_dir=None, snpsift=None):
         super(MiniseqConfig, self).__init__(filepath)
         self.vcf_storage_location = vcf_storage_location
         self.db_vcf_list_name = db_vcf_list_name
@@ -25,3 +25,4 @@ class MiniseqConfig(BaseConfig):
         self.annotator = annotator
         self.annotation_db = annotation_db
         self.custom_annotation_dir = custom_annotation_dir
+        self.snpsift = snpsift

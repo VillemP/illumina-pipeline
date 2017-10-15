@@ -7,6 +7,7 @@ class Sample:
         self.vcflocation = vcflocation.rstrip()
         self.bamlocation = bamlocation.rstrip()
         self.finished = False
+        self.annotated = False
         self.reduced_variants_vcf = None
         assert os.path.exists(self.vcflocation)
         assert os.path.exists(self.bamlocation)

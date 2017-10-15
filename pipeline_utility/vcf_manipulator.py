@@ -1,7 +1,8 @@
 """
 Simple gene-based annotation script, that adds info to vfc INFO field.
 
-Usage: python Vcf-manipulation.py input.vcf annotation.file annotation.name output.vcf
+Usage: python vcf_manipulator.py annotation.file annotation.name input.vcf output.vcf
+or     cat input.vcf | vcf_manipulator.py annotation.file annotation.name > output.vcf
 
 Input vcf: previously annovar annotatated vcf file containing Gene.refGene= in INFO field.
 
@@ -22,7 +23,7 @@ Caution! This annotation relies on matching gene names in files, be aware of syn
 import sys
 
 
-def annotate(vcf, annotation_file, annotation, output=sys.stdout):
+def annotate(annotation_file, annotation, vcf=sys.stdin, output=sys.stdout):
     # make dictionary from annotation file
 
     d = {}
@@ -43,40 +44,43 @@ def annotate(vcf, annotation_file, annotation, output=sys.stdout):
     headers = 0
     variants = 0
 
-    for line in vcf:
-        if line[0] == "#":
+    for row in vcf:
+        if row[0] == "#":
             headers += 1
 
-            if line[0:6] == "#CHROM":
+            if row[0:6] == "#CHROM":
                 # final header line, write our own header
                 headerline = "##INFO=<ID={0},Number=.,Type=String,Description=\"Custom gene-based annotation\">\n".format(
                     annotation)
                 output.write(headerline)
-            output.write(line)
+            output.write(row)
         else:
-            variant = line.split()
+            variant = row.split()
             info = variant[7].split(';')
-            refgene = "".join(filter(lambda x: 'Gene.refGene=' in x, info))
-            genelist = refgene.split('=')
+            refgene = filter(lambda x: 'Gene.refGene=' in x, info)
+            genelist = refgene[0].split('=')
             gene = genelist[1]
             if gene in d:
                 info.append(annotation + "=" + ",".join(d[gene]))
             else:
                 info.append(annotation + "=no_annotation")
             variant[7] = ';'.join(info)
-            output.write(" ".join(variant))
+            output.write("\t".join(variant) + "\n")
             variants += 1
 
 
 if __name__ == "__main__":
     args = sys.argv
-    print ""
-    print "Input vcf: " + sys.argv[1]
-    print "Annotation file: " + sys.argv[2]
-    print "Annotation name: " + sys.argv[3]
-    print "Output is written to: " + sys.argv[4]
-    print ""
+    if len(sys.argv) >= 5:
+        print ""
+        print "Annotation file: " + sys.argv[1]
+        print "Annotation name: " + sys.argv[2]
+        print "Input vcf: " + sys.argv[3]
+        print "Output is written to: " + sys.argv[4]
+        print ""
 
-    with open(sys.argv[4], "w+") as out:
-        with open(sys.argv[1]) as infile:
-            annotate(infile, args[2], args[3], out)
+        with open(sys.argv[4], "w+") as out:
+            with open(sys.argv[3]) as infile:
+                annotate(args[1], args[2], infile, out)
+    else:
+        annotate(args[1], args[2])
