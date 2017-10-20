@@ -10,7 +10,7 @@ import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
 from miniseq.miniseqconfig import MiniseqConfig
-from pipeline_utility import vcf_manipulator
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 
 try:
     from cStringIO import StringIO
@@ -22,7 +22,8 @@ yaml.add_constructor(MiniseqConfig.yaml_tag, MiniseqConfig.cfg_constructor)
 cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'miniseq.yaml')
 config = MiniseqConfig(cfg_path)
 config = config.load()
-db_name_samples = config.db_name
+total_samples = 0
+db_name_samples = config.db_name  # Updated later with current samples name
 workingDir = os.getcwd()
 project = os.path.basename(os.path.normpath(workingDir))
 
@@ -62,6 +63,7 @@ def create_arguments_file(dbnr):
 
 def update_vcf_list(vcfs_list, overwrite=False):
     global db_name_samples
+    global total_samples
     data = ""
 
     with open(config.db_vcf_dir, "a+") as db_vcfs:
@@ -80,8 +82,9 @@ def update_vcf_list(vcfs_list, overwrite=False):
                 db_vcfs.write(line + "\n")
             else:
                 skipped += 1
-    create_arguments_file(str(curr_len + i))
-    db_name_samples = db_name_samples + str((curr_len + i))
+    total_samples = curr_len + i
+    db_name_samples = db_name_samples + str(total_samples)
+    create_arguments_file(str(total_samples))
     print ("Updated {0} with {1} unique samples. "
            "Skipped {2} preexisting samples. New database name is {3}.").format(
         os.path.join(config.db_directory, config.db_vcf_list_name), i, skipped, db_name_samples)
@@ -143,6 +146,8 @@ def update_database(samples, replace, testmode):
 
 
 def annotate(sample, testmode):
+    global total_samples
+    global db_name_samples
     # Reduce the amount of variants to work with
     if not testmode:
         outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
@@ -159,8 +164,6 @@ def annotate(sample, testmode):
         proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
         processes.append(proc)
 
-        with proc.stderr:
-            logdata(proc.stderr)
         proc.wait()
         if proc.returncode == 0:
             sample.reduced_variants_vcf = outfile
@@ -182,7 +185,7 @@ def annotate(sample, testmode):
             logdata(proc.stderr)
         proc.wait()
 
-    # annotator output file -->
+    # annotator output file --> add custom and external gene name based
     disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
     disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
     hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
@@ -197,15 +200,22 @@ def annotate(sample, testmode):
     args_5 = shlex.shlex('java -jar {0} '
                          'extractFields '
                          '- '
-                         '-e "." -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
                          '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
                          'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20150629 '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
-
-    slx = list([args_1, args_2, args_3, args_4, args_5])
+    if testmode:
+        total_samples = 1
+    # This approach retains quotation marks and complete whitespace delimited args
+    args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
+    args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
+                                                         os.path.join(config.db_directory,
+                                                                      db_name_samples + str(total_samples)),
+                                                         total_samples))
+    slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
     for arg in slx:
         arg.whitespace_split = True
 
@@ -215,11 +225,22 @@ def annotate(sample, testmode):
         proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
         proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
         proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_4.stdout, stdout=subprocess.PIPE)
-        # proc_2.communicate()[0]
+        # Proc 6 takes in a table
+        proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
+        proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
         with open(sample.name + ".annotated.table", "w+") as table:
-            table.write(proc_5.communicate()[0])
-    if proc_5.returncode == 0:
+            table.write(proc_7.communicate()[0])
+
+    # TODO: Switch to multiprocessing?
+    # jobs = multiprocessing.Pool(1)
+    # annotator = multiprocessing.Process()
+
+    # Get variance % from AD and add to a column
+
+
+    if proc_6.returncode == 0:
         sample.annotated = True
+        print(sample)
 
 
 def main(args):
