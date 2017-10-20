@@ -2,6 +2,7 @@ import argparse
 import os
 import shlex
 import subprocess
+import sys
 
 import yaml
 
@@ -146,6 +147,7 @@ def update_database(samples, replace, testmode):
 
 
 def annotate(sample, testmode):
+    sys.stderr.write("Starting annotation for file: {0}".format(sample.name))
     global total_samples
     global db_name_samples
     # Reduce the amount of variants to work with
@@ -209,12 +211,12 @@ def annotate(sample, testmode):
                          .format(config.snpsift))
     if testmode:
         total_samples = 1
-    # This approach retains quotation marks and complete whitespace delimited args
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
     args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
                                                          os.path.join(config.db_directory,
                                                                       db_name_samples + str(total_samples)),
                                                          total_samples))
+    # This approach retains quotation marks and complete whitespace delimited args
     slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
     for arg in slx:
         arg.whitespace_split = True
@@ -235,12 +237,51 @@ def annotate(sample, testmode):
     # jobs = multiprocessing.Pool(1)
     # annotator = multiprocessing.Process()
 
-    # Get variance % from AD and add to a column
-
-
     if proc_6.returncode == 0:
         sample.annotated = True
+        sys.stderr.write("Finished annotating sample {0}".format(sample.name))
         print(sample)
+
+
+def calc_coverage(sample):
+    path = os.path.join(workingDir, sample.name + "_coverage")
+    try:
+        os.makedirs(path)
+    except OSError:
+        if not os.path.isdir(path):
+            raise
+    depth_args = shlex.split('java -Xmx4g -jar {0} '
+                             '-T DepthOfCoverage '
+                             '-R {1} '
+                             '-I {2} '
+                             '-L {3}'
+                             '-geneList {4} '
+                             '-ct 1 -ct 10 -ct 20 -ct 50 '
+                             '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
+                                             config.refseq, os.path.join(path, sample.name + ".requested")))
+    diagnose_args = shlex.split('java -Xmx4g -jar {0} '
+                                '-T DiagnoseTargets '
+                                '-R {1} '
+                                '-I {2} '
+                                '-L {3} '
+                                '-min 20 '
+                                '-o {4}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
+                                                os.path.join(path, sample.name + ".diagnoseTargets")))
+    table_args = shlex.split('java -Xmx4g -jar {0} '
+                             '-T VariantsToTable '
+                             '-R {1} '
+                             '-V {2} '
+                             '-F CHROM -F POS -F END -F FILTER -F IDP -F IGC '
+                             '--showFiltered '.format(config.toolkit, config.reference,
+                                                      os.path.join(path, sample.name + ".diagnoseTargets")))
+    depth = subprocess.Popen(depth_args, shell=False)
+    # depth.wait()
+    diagnose = subprocess.Popen(diagnose_args, shell=False)
+    diagnose.wait()
+    to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
+    table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
+    with open(table_name, "wb+") as f:
+        f.write(to_table.communicate()[0])
 
 
 def main(args):
@@ -282,7 +323,7 @@ def main(args):
             update_database(samples, args.no_replace, args.test)
         for sample in samples:
             annotate(sample, args.test)
-            # calc_coverage(sample)
+            calc_coverage(sample)
             # create_excel_table(sample)
             pass
     else:

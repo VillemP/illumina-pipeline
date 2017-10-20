@@ -2,9 +2,7 @@ import sys
 
 
 def annotate_pos(anno_file, ac, het, hom, pos=21, empty=".", table=sys.stdin, output=sys.stdout):
-    ann = []
-
-    ann_set = ann  # set()
+    ann_set = []
     with open(anno_file, "r") as annotationfile:
         for line in annotationfile:
             ann_set.append(line.split())
@@ -19,9 +17,9 @@ def annotate_pos(anno_file, ac, het, hom, pos=21, empty=".", table=sys.stdin, ou
         else:
             var = [variant for variant in ann_set if variant[0:4] == [row[0], row[1], row[3], row[4]]]
             if len(var) > 0:
-                ac_val = var[4]
-                het_val = var[5]
-                hom_val = var[6]
+                ac_val = var[0][4]
+                het_val = var[0][5]
+                hom_val = var[0][6]
                 row.insert((int(pos)), str(ac_val))
                 row.insert((int(pos) + 1), str(het_val))
                 row.insert((int(pos) + 2), str(hom_val))
