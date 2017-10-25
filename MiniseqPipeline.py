@@ -10,8 +10,10 @@ import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
+from miniseq.miniseq_excel_filters import MiniseqFilters
 from miniseq.miniseqconfig import MiniseqConfig
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
+from pipeline_utility.txttoxlsx_filtered import create_excel
 
 try:
     from cStringIO import StringIO
@@ -32,6 +34,7 @@ assert os.path.exists(config.annotator)
 
 
 def logdata(stdout):
+    # TODO: Fix logging
     with open(config.logfile, "a+") as log:
         for line in iter(stdout.readline, b''):  # b'\n'-separated lines
             # log.write(time.time() + "\t" + line + "\n")
@@ -39,7 +42,7 @@ def logdata(stdout):
             print ("{}".format(line.rstrip()))
 
 
-# soon to be deprecated
+# deprecated, used with --old
 def create_configs():
     prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
     vcflist = pipeline_utility.file_utility.write_vcfs_list(workingDir, "vcfs.list")
@@ -51,7 +54,7 @@ def create_configs():
         raise IOError("Database updating failed due to incorrect files.")
 
 
-# soon to be deprecated
+# deprecated, used with --old
 def create_arguments_file(dbnr):
     with open("arguments.txt", "wb+") as f:
         f.write("wd:\n")
@@ -62,10 +65,9 @@ def create_arguments_file(dbnr):
         f.write(project)
 
 
-def update_vcf_list(vcfs_list, overwrite=False):
+def update_vcf_list(vcfs_list):
     global db_name_samples
     global total_samples
-    data = ""
 
     with open(config.db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
@@ -89,6 +91,7 @@ def update_vcf_list(vcfs_list, overwrite=False):
     print ("Updated {0} with {1} unique samples. "
            "Skipped {2} preexisting samples. New database name is {3}.").format(
         os.path.join(config.db_directory, config.db_vcf_list_name), i, skipped, db_name_samples)
+    return i, skipped
 
 
 def combine_variants():
@@ -111,8 +114,7 @@ def combine_variants():
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
 
-    with proc.stderr:
-        logdata(proc.stderr)
+    logdata(proc.stderr)
     proc.wait()
 
     args = shlex.split('java -Xmx10g -jar {0} '
@@ -127,8 +129,7 @@ def combine_variants():
 
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
-    with proc.stderr:
-        logdata(proc.stderr)
+    logdata(proc.stderr)
     proc.wait()
     # print proc.returncode
     # proc.communicate()
@@ -140,14 +141,16 @@ def update_database(samples, replace, testmode):
         vcfslist = list()
         for sample in samples:
             vcfslist.append(sample.vcflocation)
-        pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
-        update_vcf_list(vcfslist, True)
-        combine_variants()
+        copied, skipped = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
+        updated, skip = update_vcf_list(vcfslist)
+        if copied > 0 and skipped + skip == 0:
+            # If there were any variant files updated (copied) or
+            combine_variants()
     pass
 
 
 def annotate(sample, testmode):
-    sys.stderr.write("Starting annotation for file: {0}".format(sample.name))
+    print("Starting annotation for file: {0}".format(sample.name))
     global total_samples
     global db_name_samples
     # Reduce the amount of variants to work with
@@ -181,10 +184,10 @@ def annotate(sample, testmode):
                            "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
 
         proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
-        processes.append(proc)
-
         with proc.stderr:
             logdata(proc.stderr)
+        processes.append(proc)
+
         proc.wait()
 
     # annotator output file --> add custom and external gene name based
@@ -214,7 +217,7 @@ def annotate(sample, testmode):
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
     args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
                                                          os.path.join(config.db_directory,
-                                                                      db_name_samples + str(total_samples)),
+                                                                      db_name_samples),
                                                          total_samples))
     # This approach retains quotation marks and complete whitespace delimited args
     slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
@@ -230,8 +233,11 @@ def annotate(sample, testmode):
         # Proc 6 takes in a table
         proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
         proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
+        # with proc_7.stderr:
+        #    logdata(proc_7.stderr)
         with open(sample.name + ".annotated.table", "w+") as table:
             table.write(proc_7.communicate()[0])
+            sample.table_files.append(os.path.abspath(table.name))
 
     # TODO: Switch to multiprocessing?
     # jobs = multiprocessing.Pool(1)
@@ -239,7 +245,7 @@ def annotate(sample, testmode):
 
     if proc_6.returncode == 0:
         sample.annotated = True
-        sys.stderr.write("Finished annotating sample {0}".format(sample.name))
+        print("Finished annotating sample {0}".format(sample.name))
         print(sample)
 
 
@@ -254,7 +260,7 @@ def calc_coverage(sample):
                              '-T DepthOfCoverage '
                              '-R {1} '
                              '-I {2} '
-                             '-L {3}'
+                             '-L {3} '
                              '-geneList {4} '
                              '-ct 1 -ct 10 -ct 20 -ct 50 '
                              '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
@@ -275,13 +281,50 @@ def calc_coverage(sample):
                              '--showFiltered '.format(config.toolkit, config.reference,
                                                       os.path.join(path, sample.name + ".diagnoseTargets")))
     depth = subprocess.Popen(depth_args, shell=False)
-    # depth.wait()
     diagnose = subprocess.Popen(diagnose_args, shell=False)
-    diagnose.wait()
     to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
     table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
     with open(table_name, "wb+") as f:
         f.write(to_table.communicate()[0])
+    diagnose.wait()
+    depth.wait()
+
+    # with to_table.stderr:
+    #    logdata(to_table.stderr)
+
+    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                           sample.name + '.requested.sample_summary')))
+    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                           sample.name + '.requested.sample_summary')))
+
+
+def create_excel_table(sample):
+    filters = MiniseqFilters(sample.table_files)
+    create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, total_samples)
+    pass
+
+
+def run_samples(args, sample_list):
+    samples = list()
+    for sample in sample_list:
+        location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")[1]
+        bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")[1]
+        try:
+            samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
+            samples.append(samp)
+            update_database(samples, args.no_replace, args.test)
+        except IOError as e:
+            sys.stderr.write("PIPELINE ERROR: {0}\nIs your sample name correct? "
+                             "Do the BAM and VCF files have the same filename? "
+                             "Do not include file endings!\n"
+                             "After fixing the errors, rerun {1} --s {2}\n".
+                             format(e.message, __file__, sample))
+    for sample in samples:
+        if not args.test:
+            annotate(sample, args.test)
+            calc_coverage(sample)
+        create_excel_table(sample)
+        print("Finished sample {0}".format(sample.name))
 
 
 def main(args):
@@ -290,24 +333,16 @@ def main(args):
 
     # True if replace, False if --no_replace, passed as an argument in update_database()
     if not args.no_replace:
-        print("WARNING: VCF files that have overlapping names were not copied into the database! "
-              "Old variant files still exist.")
+        sys.stderr.writelines(
+            "WARNING: VCF files with file names that already exist in the database will not be updated! "
+            "Old variant files still exist. (--no_replace is active)\n")
 
     if args.batch:
         # prefixes, vcfslist, bamlist = create_configs()
         # for i in range(0, len(prefixes)):
         #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
         prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-        for prefix in prefixes:
-            vcf = pipeline_utility.file_utility.find_file(workingDir, prefix + ".vcf")[1]
-            bam = pipeline_utility.file_utility.find_file(workingDir, prefix + ".bam")[1]
-            samples.append(pipeline_utility.sample.Sample(prefix, vcf, bam))
-        update_database(samples, args.no_replace, args.test)
-        for sample in samples:
-            # annotate(sample)
-            # calc_coverage(sample)
-            # create_excel_table(sample)
-            pass
+        run_samples(args, prefixes)
 
     elif args.old:
         prefixes, vcfslist, bamlist = create_configs()
@@ -315,17 +350,8 @@ def main(args):
             samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
         update_database(samples, args.no_replace, args.test)
     elif args.samples:
-        for sample in args.samples:
-            vcfname, location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")
-            bamname, bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")
-            samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
-            samples.append(samp)
-            update_database(samples, args.no_replace, args.test)
-        for sample in samples:
-            annotate(sample, args.test)
-            calc_coverage(sample)
-            # create_excel_table(sample)
-            pass
+        print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
+        run_samples(args, args.samples)
     else:
         print "No valid command input."
         print "Printing cfg values."

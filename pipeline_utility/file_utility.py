@@ -1,4 +1,10 @@
 import os
+
+try:
+    from scandir import walk
+except ImportError:
+    from os import walk
+
 import shutil
 import sys
 
@@ -17,11 +23,11 @@ def find_file(main_dir, filename):
     """
     assert os.path.exists(main_dir), "Path {} does not exist.".format(main_dir)
 
-    for (dirpath, dirnames, files) in os.walk(main_dir):
+    for (dirpath, dirnames, files) in walk(main_dir):
         for name in files:
             if name == filename:
                 return name, os.path.join(dirpath, name)
-    return None
+    return None, None
 
 
 def find_filetype(dir, filetype):
@@ -36,7 +42,7 @@ def find_filetype(dir, filetype):
     duplicates = 0
     # unique_files = dict([])
     unique_files = list(())
-    for (dirpath, dirnames, files) in os.walk(dir):
+    for (dirpath, dirnames, files) in walk(dir):
         for name in files:
             if name.endswith(filetype):
                 if name not in unique_files:
@@ -120,6 +126,7 @@ def copy_vcf(files, dest, overwrite=False):
         else:
             skipped += 1
     print("Finished copying of {0} files. Skipped {1} files. ".format(i, skipped))
+    return i, skipped
 
 
 def file_len(fname):

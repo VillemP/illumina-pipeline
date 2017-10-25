@@ -1,17 +1,13 @@
-import os
-
 from pipeline_utility.baseconfig import BaseConfig
 
 
-class MiniseqConfig(BaseConfig):
-    yaml_tag = u"!MiniseqConfig"
-    BaseConfig.hidden_fields.append('db_vcf_dir')
+class TruesightOneConfig(BaseConfig):
+    yaml_tag = u"!TruesightOneConfig"
 
-    def __init__(self, filepath, vcf_storage_location='', db_vcf_list_name='', db_directory='', db_name='',
-                 logfile="Miniseq-log.txt", toolkit='directory to GATK', reference='directory to ucsc.hg19.fasta',
-                 targetfile=".bed target file", refseq=".refSeq file", annotator=None, annotation_db=None,
-                 custom_annotation_dir=None, snpsift=None):
-        super(MiniseqConfig, self).__init__(filepath)
+    def __init__(self, filepath, json_dir='', name='', ):
+        super(TruesightOneConfig, self).__init__(filepath)
+        self.json_dir = json_dir
+        self.name = name
         self.vcf_storage_location = vcf_storage_location
         self.db_vcf_list_name = db_vcf_list_name
         self.db_directory = db_directory
