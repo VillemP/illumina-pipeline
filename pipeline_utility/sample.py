@@ -1,8 +1,9 @@
 import os
 
 
-class Sample:
-    def __init__(self, name, vcflocation, bamlocation):
+class Sample(object):
+    def __init__(self, name, vcflocation, bamlocation, generequest=None):
+        super(Sample, self).__init__()
         if vcflocation is not None and bamlocation is not None:
             self.error = False
             self.name = name.rstrip()
@@ -11,6 +12,11 @@ class Sample:
             self.finished = False
             self.annotated = False
             self.reduced_variants_vcf = None
+            self.genes_tempfile = None
+            self.generequest = generequest
+            self.panels = list()
+            self.genes = list()
+            self.targetfile = None
             self.table_files = list()
             assert os.path.exists(self.vcflocation)
             assert os.path.exists(self.bamlocation)
@@ -21,3 +27,7 @@ class Sample:
 
     def __str__(self):
         return "{0} Annotated:{1} Finished:{2}".format(self.name, str(self.annotated), str(self.finished))
+
+    @property
+    def final_order(self):
+        return None

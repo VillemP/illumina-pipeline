@@ -159,7 +159,7 @@ def create_excel(name, filterset, files, ac_5_percent=None):
                     col_index = 0  # start from the beginning of the row
                     row_filtered = False
 
-                print "Total variants: {0}\nFiltered variants: {1}".format(table_length, filtered)
+                print "Total rows: {0}\nFiltered rows: {1}".format(table_length, filtered)
                 # print "Filters active {0}.\n{1}".format(len(filters[i]),
                 #                                       '\n'.join(str(v) for v in filters[i].itervalues()))
     except (Exception) as error:

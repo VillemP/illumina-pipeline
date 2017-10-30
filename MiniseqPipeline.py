@@ -1,6 +1,7 @@
 import argparse
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -282,12 +283,13 @@ def calc_coverage(sample):
                                                       os.path.join(path, sample.name + ".diagnoseTargets")))
     depth = subprocess.Popen(depth_args, shell=False)
     diagnose = subprocess.Popen(diagnose_args, shell=False)
-    to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
     table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
-    with open(table_name, "wb+") as f:
-        f.write(to_table.communicate()[0])
     diagnose.wait()
     depth.wait()
+    # to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
+    with open(table_name, "wb+") as f:
+        # f.write(to_table.communicate()[0])
+        pass
 
     # with to_table.stderr:
     #    logdata(to_table.stderr)
@@ -312,18 +314,34 @@ def run_samples(args, sample_list):
         try:
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
-            update_database(samples, args.no_replace, args.test)
         except IOError as e:
             sys.stderr.write("PIPELINE ERROR: {0}\nIs your sample name correct? "
                              "Do the BAM and VCF files have the same filename? "
                              "Do not include file endings!\n"
                              "After fixing the errors, rerun {1} --s {2}\n".
                              format(e.message, __file__, sample))
+    update_database(samples, args.no_replace, args.test)
     for sample in samples:
         if not args.test:
             annotate(sample, args.test)
             calc_coverage(sample)
         create_excel_table(sample)
+        if not args.keep:
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".annotated.table"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".avinput"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_cumulative_coverage_counts"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_cumulative_coverage_proportions"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_interval_statistics"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_statistics"))
+
+
         print("Finished sample {0}".format(sample.name))
 
 
@@ -374,8 +392,17 @@ if __name__ == "__main__":
         group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
                                                "Automatically updates the variant database.",
                            action="store_true")
-        parser.add_argument("-r", "--no_replace", action="store_false", default=True)
-        parser.add_argument("-t", "--test", action="store_true", default=False)
+        parser.add_argument("-r", "--no_replace",
+                            help="Will skip copying the VCF file to the VCF directory specified in the config file"
+                                 " (don't overwrite VCF in the DB)."
+                                 "Useful in a test scenario when running large batches repeatedly or if the VCF is "
+                                 "not supposed to be inserted into the DB.",
+                            action="store_false", default=True)
+        parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
+                                                 "expects the DB to exist..",
+                            action="store_true", default=False)
+        parser.add_argument("-k", "--keep", help="Keep intermediary annotation files.",
+                            action="store_true", default=False)
 
         args = parser.parse_args()
         main(args)

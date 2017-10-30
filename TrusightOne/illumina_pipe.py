@@ -1,9 +1,11 @@
 import argparse
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from distutils.version import LooseVersion as Version
+from tempfile import NamedTemporaryFile
 
 import yaml
 
@@ -11,6 +13,7 @@ import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 from TrusightOne.jsonhandler import JsonHandler
+from gene_panel import CombinedPanels
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 from pipeline_utility.txttoxlsx_filtered import create_excel
 from truesightoneconfig import TruesightOneConfig
@@ -18,11 +21,12 @@ from tso_excel_filters import TruesightOneFilters
 
 try:
     from cStringIO import StringIO
-except:
+except ImportError:
     from StringIO import StringIO
 
 workingDir = os.getcwd()
 processes = []
+tso_genes = list()
 
 
 def loadCfg():
@@ -37,15 +41,20 @@ def loadCfg():
 
 
 config = loadCfg()
+handler = JsonHandler(config.json_dir, config)
 total_samples = 0
 db_name_samples = config.db_name  # Updated later with current samples name
 project = os.path.basename(os.path.normpath(workingDir))
 assert os.path.exists(config.annotator)
 
 
-def loadPanels():
-    handler = JsonHandler(config.json_dir)
-    panels = handler.get_all_panels(external=True)
+def loadPanels(external):
+    panels = handler.get_all_panels(external)
+    return panels
+
+
+def updatePanels():
+    panels = loadPanels(True)
 
     # Selecting and sorting for tables above version 1.0, ordered by diseasegroup and subgroup
     currentlist = [p for p in panels if p.version >= Version("1.0")]
@@ -55,6 +64,21 @@ def loadPanels():
         for panel in currentlist:
             f.write(panel.as_table + '\n')
 
+
+def loadCombinedPanels(out):
+    loadPanels(False)
+    comb = CombinedPanels(handler)
+    with open(os.path.join(config.json_dir, out), "w+") as f:
+        for panelcombo in comb.iteritems():
+            # f.write(panel.as_table + '\n')
+            for panel in panelcombo[1]:
+                f.write(panel.as_table + '\t{}'.format(panelcombo[0]) + '\n')
+
+
+def findPanel(key):
+    if len(handler.panels) > 0:
+        # match = [panel for panel in handler.panels if panel.
+        pass
 
 def logdata(stdout):
     # TODO: Fix logging
@@ -117,22 +141,16 @@ def update_vcf_list(vcfs_list):
     return i, skipped
 
 
-def combine_variants():
+def combine_variants(out, vcflist=config.db_vcf_dir):
     # Combining variant files into a single reference to be used for statistical purposes
-    # ip = interval padding, required for inclusion of splicing variants (bed targets are too precise for exons)
     args = shlex.split('java -Xmx10g -jar {0} '
                        '-T CombineVariants '
                        '-R {1} '
                        '-V {2} '
-                       '-L {3} '
-                       '-o {4} '
-                       '-ip {5} '
-                       '-log {6} '
-                       '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, config.db_vcf_dir,
-                                                               config.targetfile,
-                                                               os.path.join(config.db_directory,
-                                                                            db_name_samples + ".vcf"),
-                                                               config.padding, config.logfile))
+                       '-o {3} '
+                       '-log {4} '
+                       '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
+                                                               out, config.logfile))
 
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
@@ -168,7 +186,7 @@ def update_database(samples, replace, testmode):
         updated, skip = update_vcf_list(vcfslist)
         if copied > 0 and skipped + skip == 0:
             # If there were any variant files updated (copied) or
-            combine_variants()
+            combine_variants(os.path.join(config.db_directory, db_name_samples + ".vcf"))
     pass
 
 
@@ -176,7 +194,7 @@ def annotate(sample, testmode):
     print("Starting annotation for file: {0}".format(sample.name))
     global total_samples
     global db_name_samples
-    # Reduce the amount of variants to work with
+
     if not testmode:
         sample.reduced_variants_vcf = sample.vcflocation
 
@@ -210,6 +228,9 @@ def annotate(sample, testmode):
         "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_nr, "Disease.nr"))
     args_3 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), hpo, "HPO"))
     args_4 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), panels, "Panel"))
+    args_gene_panel = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__),
+                                                       sample.genes_tempfile.name,
+                                                       "GeneReq"))
     args_5 = shlex.shlex('java -jar {0} '
                          'extractFields '
                          '- '
@@ -228,7 +249,7 @@ def annotate(sample, testmode):
                                                                       db_name_samples),
                                                          total_samples))
     # This approach retains quotation marks and complete whitespace delimited args
-    slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
+    slx = list([args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
     for arg in slx:
         arg.whitespace_split = True
 
@@ -237,7 +258,17 @@ def annotate(sample, testmode):
         proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
         proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
         proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
-        proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_4.stdout, stdout=subprocess.PIPE)
+        # A hack to have VcfManipulator insert an annotation, but it takes in a file object if accessed from subprocess
+        with NamedTemporaryFile(delete=False) as tempfile:
+            # sample.genes_tempfile = tempfile
+            for line in sample.generequest:
+                tempfile.file.write(line)
+            tempfile.file.seek(0)
+            proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
+                                               shell=False, stdin=proc_4.stdout,
+                                               stdout=subprocess.PIPE)
+        proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
+                                  stdout=subprocess.PIPE)
         # Proc 6 takes in a table
         proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
         proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
@@ -258,6 +289,11 @@ def annotate(sample, testmode):
 
 
 def calc_coverage(sample):
+    # TODO: Create a refSeq and target file for coverage analysis
+    # grep $'\t'${gene}$'\.' < ${targets} >> ${covdir}${prefix}.genes.bed
+    # sort -k1,1V -k2,2n -k3,3n < ${covdir}${prefix}.genes.bed > ${covdir}${prefix}.genes.sorted.bed
+    sample.targetfile = None
+    sample.refseq = None
     # TODO: replace with BEDtools?
     path = os.path.join(workingDir, sample.name + "_coverage")
     try:
@@ -272,15 +308,15 @@ def calc_coverage(sample):
                              '-L {3} '
                              '-geneList {4} '
                              '-ct 1 -ct 10 -ct 20 -ct 50 '
-                             '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
-                                             config.refseq, os.path.join(path, sample.name + ".requested")))
+                             '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, sample.targetfile,
+                                             sample.refseq, os.path.join(path, sample.name + ".requested")))
     diagnose_args = shlex.split('java -Xmx4g -jar {0} '
                                 '-T DiagnoseTargets '
                                 '-R {1} '
                                 '-I {2} '
                                 '-L {3} '
                                 '-min 20 '
-                                '-o {4}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
+                                '-o {4}'.format(config.toolkit, config.reference, sample.bamlocation, sample.targetfile,
                                                 os.path.join(path, sample.name + ".diagnoseTargets")))
     table_args = shlex.split('java -Xmx4g -jar {0} '
                              '-T VariantsToTable '
@@ -313,6 +349,25 @@ def create_excel_table(sample):
     pass
 
 
+def loadGenePanels(samples, args):
+    # TODO: get the gene panels and specific genes for each sample inside --panels panels.txt
+    rows = {}
+    with open(args.panels) as order:
+        for line in order.readline():
+            (prefix, panels, genes) = line.split('\t')
+            rows[prefix] = ([pan.strip() for pan in panels.split(",")], [gene.strip() for gene in genes.split(",")])
+        if len(rows) > len(samples):
+            sys.stderr("WARNING: some samples represented in the --panels file "
+                       "have no matching samples in the batch. These will be ignored.")
+        for sample in samples:
+            if sample.name in rows.iterkeys():
+                sample.panels = rows[sample.name][0]
+                sample.genes = rows[sample.name][1]
+            else:
+                sys.stderr("WARNING: some samples represented in the batch "
+                           "have no selected panels or genes in the --panels file. These will be annotated with UNKNOWN.")
+
+
 def run_samples(args, sample_list):
     samples = list()
     for sample in sample_list:
@@ -321,24 +376,42 @@ def run_samples(args, sample_list):
         try:
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
             samples.append(samp)
-            update_database(samples, args.no_replace, args.test)
         except IOError as e:
             sys.stderr.write("PIPELINE ERROR: {0}\nIs your sample name correct? "
                              "Do the BAM and VCF files have the same filename? "
                              "Do not include file endings!\n"
                              "After fixing the errors, rerun {1} --s {2}\n".
                              format(e.message, __file__, sample))
+    # TODO: check for sexes
+    loadGenePanels(samples, args)
+    update_database(samples, args.no_replace, args.test)
     for sample in samples:
-        if not args.test:
-            annotate(sample, args.test)
-            calc_coverage(sample)
+
+        annotate(sample, args.test)
+        #calc_coverage(sample)
         create_excel_table(sample)
+
+        if not args.keep:
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".annotated.table"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + ".avinput"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_cumulative_coverage_counts"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_cumulative_coverage_proportions"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_interval_statistics"))
+            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
+                                       sample.name + ".sample_statistics"))
+
         print("Finished sample {0}".format(sample.name))
+        # TODO: Run conifer
 
 
 def main(args):
     samples = list()
-    vcfslist = list()
 
     # True if replace, False if --no_replace, passed as an argument in update_database()
     if not args.no_replace:
@@ -347,9 +420,6 @@ def main(args):
             "Old variant files still exist. (--no_replace is active)\n")
 
     if args.batch:
-        # prefixes, vcfslist, bamlist = create_configs()
-        # for i in range(0, len(prefixes)):
-        #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
         prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
         run_samples(args, prefixes)
 
@@ -361,6 +431,18 @@ def main(args):
     elif args.samples:
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
         run_samples(args, args.samples)
+    elif args.json:
+        yesChoice = ['yes', 'y']
+        noChoice = ['no', 'n']
+        input = raw_input("WARNING: You are about to download the newest gene panels."
+                          " Do you wish to continue?(y/N) ").lower()
+        if input in yesChoice:
+            updatePanels()
+        elif input in noChoice:
+            # print("Quitting.")
+            print(
+            "Loading and writing panel table to {} instead...".format(os.path.join(config.json_dir, "combined.txt")))
+            loadCombinedPanels("combined.txt")
     else:
         print "No valid command input."
         print "Printing cfg values."
@@ -383,10 +465,27 @@ if __name__ == "__main__":
         group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
                                                "Automatically updates the variant database.",
                            action="store_true")
-        parser.add_argument("-r", "--no_replace", action="store_false", default=True)
-        parser.add_argument("-t", "--test", action="store_true", default=False)
+        group.add_argument("-j", "--json", action="store_true", default=False,
+                           help="Updates the existing JSON panel database.")
+        parser.add_argument("-p", "--panels", type=argparse.FileType('r'))
+        parser.add_argument("-r", "--no_replace",
+                            help="Will skip copying the VCF file to the VCF directory specified in the config file"
+                                 " (don't overwrite VCF in the DB)."
+                                 "Useful in a test scenario when running large batches repeatedly or if the VCF is "
+                                 "not supposed to be inserted into the DB.",
+                            action="store_false", default=True)
+        parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
+                                                 "expects the DB to exist.",
+                            action="store_true", default=False)
+        parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
+                            action="store_true", default=False)
 
         args = parser.parse_args()
+        if args.batch and args.panels is None:
+            parser.error("--batch requires --panels\nCheck --help panels for more info")
+        if args.samples is not None and args.panels is None:
+            parser.error("--samples requires --panels\nCheck --help panels for more info")
+
         main(args)
     except Exception:
         raise

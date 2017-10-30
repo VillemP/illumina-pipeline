@@ -1,16 +1,13 @@
-import os
-
 GREEN = "HighEvidence"
 AMBER = "ModerateEvidence"
 RED = "LowEvidence"
 
-json_dir = "/media/kasutaja/data/NGS_data/panels_json_main/"
-tsoPath = "TSO_coverage.txt"
+# TODO: Find these strings from the config. Problematic circular dependancy.
 tso_genes = list()
 
 
-def load_tso_genes():
-    with open(os.path.join(json_dir, tsoPath)) as tso:
+def load_tso_genes(tsoPath):
+    with open(tsoPath) as tso:
         data = tso.readlines()
         for line in data:
             # print data[i].rstrip().split("\t")
@@ -20,13 +17,18 @@ def load_tso_genes():
 def get_tso_status(gene):
     # type: (gene) -> Gene
     if len(tso_genes) == 0:
-        load_tso_genes()
+        load_tso_genes(gene.panel.config.tsoGenes)
     # get the coverage from the tuple (name, coverage)
     match_coverage = next((gene_cov[1] for gene_cov in tso_genes if gene_cov[0] == gene.name), None)
     if match_coverage is not None:
         gene._Gene__coverage = float(match_coverage)
         return True
     return False
+
+
+def find_synonyms(gene):
+    # TODO: get gene synonyms
+    pass
 
 
 class Gene(object):
@@ -37,7 +39,9 @@ class Gene(object):
         """
         self.ensemblegeneids = json['EnsembleGeneIds']
         self.name = json['GeneSymbol']
-        self.panel_name = panel
+        self.synonyms = []
+        self.panel = panel
+        self.panel_name = panel.name
         self.__confidence = json['LevelOfConfidence']
         self.modeofinheritance = json['ModeOfInheritance']
         self.modeofpathogenicity = json['ModeOfPathogenicity']

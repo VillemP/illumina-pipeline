@@ -1,10 +1,17 @@
+import os
+
 from pipeline_utility.baseconfig import BaseConfig
 
 
 class TruesightOneConfig(BaseConfig):
     yaml_tag = u"!TruesightOneConfig"
 
-    def __init__(self, filepath, json_dir='', name='', ):
+    def __init__(self, filepath, json_dir='', name='', vcf_storage_location='', db_vcf_list_name='', db_directory='',
+                 db_name='',
+                 logfile="Miniseq-log.txt", toolkit='directory to GenomeAnalysisTK.jar',
+                 reference='directory to ucsc.hg19.fasta',
+                 targetfile=".bed target file", refseq=".refSeq file", annotator=None, annotation_db=None,
+                 custom_annotation_dir=None, snpsift="directory to Snpsift.jar", tsoGenes="TSO_coverage.txt"):
         super(TruesightOneConfig, self).__init__(filepath)
         self.json_dir = json_dir
         self.name = name
@@ -22,3 +29,4 @@ class TruesightOneConfig(BaseConfig):
         self.annotation_db = annotation_db
         self.custom_annotation_dir = custom_annotation_dir
         self.snpsift = snpsift
+        self.tsoGenes = tsoGenes  # Location of the gene\tcoverage list

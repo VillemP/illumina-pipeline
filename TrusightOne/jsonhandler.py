@@ -10,10 +10,11 @@ from pipeline_utility import file_utility
 
 # TODO: Currently presumes data is static and files will not go missing. Check for validity of JSONs
 class JsonHandler:
-    def __init__(self, db_dir):
+    def __init__(self, db_dir, config):
         self.panels = list()
         self.panel_index = self.load_index(db_dir)
         self.json_dir = db_dir
+        self.config = config
 
     def open_page(self, url, args=None):
         r = requests.get(url, args)
@@ -25,7 +26,7 @@ class JsonHandler:
         return response, response.json()
 
     def get_genes_per_panel(self, panel):
-        q, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/get_panel/" + panel.panel_id)
+        q, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/get_panel/" + panel.id)
         print("Downloaded {0} genes for panel '{1}'".format(len(data['result']['Genes']), panel.name))
         return q, data
 
@@ -74,7 +75,7 @@ class JsonHandler:
             for panel in panels:
                 file_location = panel[1]
                 with open(file_location, "r") as f:
-                    newpanel = GenePanel(json.load(f))
+                    newpanel = GenePanel(json.load(f), self.config)
                     genelist = file_utility.find_filetype(os.path.dirname(file_location), ".genes")
                     for genes in genelist:
                         with open(genes[1], "r") as gene_json:
@@ -96,12 +97,12 @@ class JsonHandler:
                 print("Creating new index file panel.index")
                 self.save_index(self, data, self.json_dir)
             for panel in data['result']:
-                g_panel = GenePanel(panel)
+                g_panel = GenePanel(panel, self.config)
 
                 # TODO: Too complicated? Replace with load all panels every time, only save ones which differ?
                 # time.sleep(1)  # sleep for 1 second to avoid DDoS safeguards
                 match = [_oldpanel for _oldpanel in self.panel_index['result']
-                         if g_panel.panel_id == _oldpanel['Panel_Id']]
+                         if g_panel.id == _oldpanel['Panel_Id']]
                 # Should return only 1 panel with matching ID
                 if len(match) == 1:
                     # Creates a temporary panel object from json for comparison with the new panel object
