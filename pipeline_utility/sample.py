@@ -2,7 +2,7 @@ import os
 
 
 class Sample(object):
-    def __init__(self, name, vcflocation, bamlocation, generequest=None):
+    def __init__(self, name, vcflocation, bamlocation):
         super(Sample, self).__init__()
         if vcflocation is not None and bamlocation is not None:
             self.error = False
@@ -13,7 +13,6 @@ class Sample(object):
             self.annotated = False
             self.reduced_variants_vcf = None
             self.genes_tempfile = None
-            self.generequest = generequest
             self.panels = list()
             self.genes = list()
             self.targetfile = None

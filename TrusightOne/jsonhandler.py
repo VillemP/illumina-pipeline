@@ -1,5 +1,6 @@
 import json
 import os
+from distutils.version import LooseVersion as Version
 
 import requests
 
@@ -9,12 +10,16 @@ from pipeline_utility import file_utility
 
 
 # TODO: Currently presumes data is static and files will not go missing. Check for validity of JSONs
-class JsonHandler:
+class JsonHandler(object):
     def __init__(self, db_dir, config):
         self.panels = list()
         self.panel_index = self.load_index(db_dir)
         self.json_dir = db_dir
         self.config = config
+
+    @property
+    def loaded(self):
+        return len(self.panels) > 0
 
     def open_page(self, url, args=None):
         r = requests.get(url, args)
@@ -41,7 +46,7 @@ class JsonHandler:
     @staticmethod
     def load_index(location):
         indexfile = file_utility.find_file(location, "panels.index")
-        if indexfile is not None:
+        if indexfile[1] is not None:
             with open(indexfile[1]) as f:
                 index_json = json.load(f)
             return index_json
@@ -69,7 +74,7 @@ class JsonHandler:
         if len(self.panels) > 0:
             # TODO: Enable post activation loading of panels.
             # Currently loading panels can only run at the start of the app.
-            print("Warning! There are preexisting panels in the handler. Emptying the panels queue.")
+            print("Warning! There are preexisting panels in the handler. Emptying the panels list.")
             self.panels[:] = []
         if len(panels) > 1:
             for panel in panels:
@@ -85,46 +90,56 @@ class JsonHandler:
             print "Loaded {0} panels from local data.".format(len(self.panels))
             return self.panels
         else:
-            return None
+            self.get_all_panels()
+
+    def download_panel(self, g_panel):
+        genes_json, genes = self.get_genes_per_panel(g_panel)
+        g_panel.add_genes(genes)
+        self.save_panel(g_panel, self.json_dir)
 
     def get_all_panels(self, external=True):
         update_index = False
         if external:
             json_response, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
                                              [{'format', 'json'}])
-            print("Got {0} panels from PanelApp API.".format(len(data['result'])))
+            print("Found {0} panels from PanelApp API.".format(len(data['result'])))
+            local_panels = file_utility.find_filetype(self.json_dir, ".json")
             if self.panel_index is None:
                 print("Creating new index file panel.index")
                 self.save_index(self, data, self.json_dir)
             for panel in data['result']:
                 g_panel = GenePanel(panel, self.config)
 
-                # TODO: Too complicated? Replace with load all panels every time, only save ones which differ?
-                # time.sleep(1)  # sleep for 1 second to avoid DDoS safeguards
-                match = [_oldpanel for _oldpanel in self.panel_index['result']
-                         if g_panel.id == _oldpanel['Panel_Id']]
-                # Should return only 1 panel with matching ID
-                if len(match) == 1:
-                    # Creates a temporary panel object from json for comparison with the new panel object
-                    # Serves the same purpose as self.load_panels(), latest_panels comparing which is slower
-                    old_panel = GenePanel(match[0])
-                    # Download data for only new panels based on panel version
-                    if TrusightOne.gene_panel.compare_versions(g_panel, old_panel):
-                        print("Found a panel {0} with new version ({1} vs {2})."
-                              .format(g_panel.name, g_panel.version, old_panel.version))
-                        genes_json, genes = self.get_genes_per_panel(g_panel)
-                        g_panel.add_genes(genes)
-                        # latest_panels.append(g_panel)
-                        self.save_panel(g_panel, self.json_dir)
-                        update_index = True
-                    else:
-                        # print("{} {} {}".format(g_panel.name, g_panel.version, old_panel.version))
-                        pass
-                elif len(match) < 1:
-                    raise LookupError("No matching panel found for {}".format(g_panel))
+                local = [l for l in local_panels if g_panel.name == l[0].split('.')[0]]
+                if len(local) == 0:
+                    # Download panel if it doesn't exist. For example on first run.
+                    self.download_panel(g_panel)
                 else:
-                    raise LookupError("There are panels with overlapping IDs (panels: {})! Aborting!"
-                                      .format([matched_panel.name.encode("ascii") for matched_panel in match]))
+                    # Look for differences in local and external files
+                    # time.sleep(1)  # sleep for 1 second to avoid DDoS safeguards
+                    match = [_oldpanel for _oldpanel in self.panel_index['result']
+                             if g_panel.id == _oldpanel['Panel_Id']]
+                    # Should return only 1 panel with matching ID
+                    if len(match) == 1:
+                        # Creates a temporary panel object from json for comparison with the new panel object
+                        # Serves the same purpose as self.load_panels(), latest_panels comparing which is slower
+                        old_panel = GenePanel(match[0])
+                        # Download data for only new panels based on panel version
+                        if TrusightOne.gene_panel.compare_versions(g_panel, old_panel):
+                            print("Found a panel {0} with new version ({1} vs {2})."
+                                  .format(g_panel.name, g_panel.version, old_panel.version))
+                            self.download_panel(g_panel)
+                            update_index = True
+
+                    elif len(match) < 1:
+                        # It must be a new panel, it's not in the current index
+                        print("Found a new panel: {0}".format(g_panel.name))
+                        self.download_panel(g_panel)
+                        self.save_panel(g_panel, self.json_dir)
+                    else:
+                        raise LookupError("There are panels with overlapping IDs (panels: {})! "
+                                          "There can't be more than one panel with a unique Id!"
+                                          .format([matched_panel.name.encode("ascii") for matched_panel in match]))
             # Finally load panels with new updates included
             if update_index:
                 self.save_index(self, data, self.json_dir)
@@ -133,3 +148,16 @@ class JsonHandler:
         else:
             self.load_panels(self.json_dir)
         return self.panels
+
+    def write_version_one_panels(self):
+        if not self.loaded:
+            self.get_all_panels(True)
+        # Selecting and sorting for tables above version 1.0, ordered by diseasegroup and subgroup
+        currentlist = [p for p in self.panels if p.version >= Version("1.0")]
+        currentlist.sort(key=lambda panel: (panel.diseasegroup, panel.diseasesubgroup))
+
+        print("Writing the table for panels with versions >=1.0 to {}".format(
+            os.path.join(self.config.json_dir, "query.txt")))
+        with open(os.path.join(self.config.json_dir, "query.txt"), "w+") as f:
+            for panel in currentlist:
+                f.write(panel.as_table + '\n')

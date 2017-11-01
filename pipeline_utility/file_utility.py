@@ -107,7 +107,7 @@ def write_bams_list(dir, output):
 
 
 def copy_vcf(files, dest, overwrite=False):
-    assert os.path.exists(dest), "Destination {}".format(dest)
+    assert os.path.exists(dest), "Destination {} does not exist!".format(dest)
     nr = len(files)
     i = 0
     skipped = 0

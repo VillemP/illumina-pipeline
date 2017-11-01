@@ -1,3 +1,7 @@
+import csv
+import itertools
+import os
+import sys
 from distutils.version import LooseVersion
 
 import gene
@@ -93,10 +97,19 @@ def compare_versions(panel1, panel2):
     return False
 
 
+# Compile panels into a dict with the key matching the panel annotation and values being panels.
 class CombinedPanels(dict):
     def __init__(self, handler):
         super(CombinedPanels, self).__init__([])
+        self.handler = handler
         if len(handler.panels) > 0:
+            unknown_panel = GenePanel({'Name': 'ALL', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
+                                       'DiseaseSubGroup': 'None', 'CurrentVersion': '1.0'})
+            if len(gene.tso_genes) == 0:
+                gene.load_tso_genes(handler.config.tsoGenes)
+            unknown_panel.genes = gene.tso_genes
+            handler.panels.append(unknown_panel)
+            self[('ALL')] = [panel for panel in handler.panels if panel.id == '0000']
             self[('VAM', 'ID', 'Intellectual disability')] = [panel for panel in handler.panels
                                                               if panel.name == "Intellectual disability"
                                                               and panel.id == '558aa423bb5a16630e15b63c']
@@ -147,3 +160,69 @@ class CombinedPanels(dict):
                              if panel.id == '569380ac22c1fc251660faf8']
             self[('EHLERS-DANLOS')] = [panel for panel in handler.panels
                                        if panel.id == '588728f38f62030cf7152165']
+
+    def __getitem__(self, item):
+        return super(CombinedPanels, self).__getitem__([key for key in self.iterkeys() if item in key][0])
+
+    def __delitem__(self, item):
+        return super(CombinedPanels, self).__delitem__([key for key in self.iterkeys() if item in key][0])
+
+    def get(self, item, default=None):
+        return super(CombinedPanels, self).get([key for key in self.iterkeys() if item in key][0], default)
+
+    def __contains__(self, item):
+        return super(CombinedPanels, self).__contains__([key for key in self.iterkeys() if item in key][0])
+
+    def table(self):
+        lines = list()
+        for key, panels in self.iteritems():
+            genes = list()
+
+            for panel in panels:
+                genes.extend([g.name for g in panel.tso_genes])
+            line = [key, len(genes)]
+            line.extend(genes)
+            lines.append(line)
+        lines.sort(key=lambda col: col[0])
+        csv = itertools.izip_longest(*lines)
+        return csv
+
+    def write_table(self, out="combined_panels_summary.txt"):
+        if not self.handler.loaded:
+            self.handler.get_all_panels(False)
+        print("Writing the panel combinations to {0}".format(os.path.join(self.handler.config.json_dir, out)))
+        with open(os.path.join(self.handler.config.json_dir, out), "w+") as f:
+            for panelcombo in self.iteritems():
+                # f.write(panel.as_table + '\n')
+                for panel in panelcombo[1]:
+                    f.write(panel.as_table + '\t{}'.format(panelcombo[0]) + '\n')
+        print("Writing the combined panels gene table to {0}".format(self.handler.config.gene_table))
+        with open(self.handler.config.gene_table, "wb+") as f:
+            writer = csv.writer(f)
+            for row in self.table():
+                writer.writerow(row)
+
+
+def findPanel(key, combinedpanels, handler):
+    try:
+        panel = combinedpanels[key]
+        return panel
+    except IndexError:
+        # This key didn't yield a combined panel result, perhaps it is not a custom compiled panel but a single panel
+        pass
+    if len(handler.panels) > 0:
+        match = [panel for panel in handler.panels if panel.name == key]
+        if len(match) == 0:
+            # Maybe it is an ID based query
+            match = [panel for panel in handler.panels if panel.id == key]
+            if len(match) > 0:
+                return match[0]
+            else:
+                sys.stderr.write("PIPELINE ERROR: Unknown panel key {0}\n".format(key))
+                return []
+        elif len(match) > 1:
+            # Found at least two matches with this name, this shouldn't happen
+            raise ValueError("The panel with the key {0} in the order yielded multiple results! \nPanels {1}"
+                             .format(key, match))
+        else:
+            return match[0]

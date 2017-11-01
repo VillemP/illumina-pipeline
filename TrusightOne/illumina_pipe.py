@@ -4,19 +4,18 @@ import shlex
 import shutil
 import subprocess
 import sys
-from distutils.version import LooseVersion as Version
 from tempfile import NamedTemporaryFile
 
-import yaml
-
+import gene
+import gene_panel
 import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
+import truesightoneconfig
 from TrusightOne.jsonhandler import JsonHandler
 from gene_panel import CombinedPanels
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 from pipeline_utility.txttoxlsx_filtered import create_excel
-from truesightoneconfig import TruesightOneConfig
 from tso_excel_filters import TruesightOneFilters
 
 try:
@@ -28,57 +27,15 @@ workingDir = os.getcwd()
 processes = []
 tso_genes = list()
 
-
-def loadCfg():
-    cfg_path = os.path.join(workingDir, "tso.yaml")
-
-    yaml.add_constructor(TruesightOneConfig.yaml_tag, TruesightOneConfig.cfg_constructor)
-
-    cfg = TruesightOneConfig(cfg_path)
-    cfg = cfg.load()
-
-    return cfg
-
-
-config = loadCfg()
+config = truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "tso.yaml"))
 handler = JsonHandler(config.json_dir, config)
+handler.get_all_panels(False)  # Get local data
+combinedpanels = CombinedPanels(handler)
 total_samples = 0
 db_name_samples = config.db_name  # Updated later with current samples name
 project = os.path.basename(os.path.normpath(workingDir))
 assert os.path.exists(config.annotator)
 
-
-def loadPanels(external):
-    panels = handler.get_all_panels(external)
-    return panels
-
-
-def updatePanels():
-    panels = loadPanels(True)
-
-    # Selecting and sorting for tables above version 1.0, ordered by diseasegroup and subgroup
-    currentlist = [p for p in panels if p.version >= Version("1.0")]
-    currentlist.sort(key=lambda panel: (panel.diseasegroup, panel.diseasesubgroup))
-
-    with open(os.path.join(config.json_dir, "query.txt"), "w+") as f:
-        for panel in currentlist:
-            f.write(panel.as_table + '\n')
-
-
-def loadCombinedPanels(out):
-    loadPanels(False)
-    comb = CombinedPanels(handler)
-    with open(os.path.join(config.json_dir, out), "w+") as f:
-        for panelcombo in comb.iteritems():
-            # f.write(panel.as_table + '\n')
-            for panel in panelcombo[1]:
-                f.write(panel.as_table + '\t{}'.format(panelcombo[0]) + '\n')
-
-
-def findPanel(key):
-    if len(handler.panels) > 0:
-        # match = [panel for panel in handler.panels if panel.
-        pass
 
 def logdata(stdout):
     # TODO: Fix logging
@@ -277,7 +234,8 @@ def annotate(sample, testmode):
         with open(sample.name + ".annotated.table", "w+") as table:
             table.write(proc_7.communicate()[0])
             sample.table_files.append(os.path.abspath(table.name))
-
+        for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
+            processes.append(proc)
     # TODO: Switch to multiprocessing?
     # jobs = multiprocessing.Pool(1)
     # annotator = multiprocessing.Process()
@@ -328,6 +286,8 @@ def calc_coverage(sample):
     depth = subprocess.Popen(depth_args, shell=False)
     diagnose = subprocess.Popen(diagnose_args, shell=False)
     to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
+    for proc in (depth, diagnose, to_table):
+        processes.append(proc)
     table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
     with open(table_name, "wb+") as f:
         f.write(to_table.communicate()[0])
@@ -349,26 +309,46 @@ def create_excel_table(sample):
     pass
 
 
-def loadGenePanels(samples, args):
+def getGeneOrder(samples, args):
     # TODO: get the gene panels and specific genes for each sample inside --panels panels.txt
     rows = {}
-    with open(args.panels) as order:
-        for line in order.readline():
+    try:
+        for line in args.panels.readlines():
             (prefix, panels, genes) = line.split('\t')
-            rows[prefix] = ([pan.strip() for pan in panels.split(",")], [gene.strip() for gene in genes.split(",")])
+            rows[prefix] = ([pan.strip().upper() for pan in panels.split(",")],
+                            [g.strip().upper() for g in genes.split(",")])
         if len(rows) > len(samples):
             sys.stderr("WARNING: some samples represented in the --panels file "
                        "have no matching samples in the batch. These will be ignored.")
         for sample in samples:
             if sample.name in rows.iterkeys():
-                sample.panels = rows[sample.name][0]
-                sample.genes = rows[sample.name][1]
+                for orderkey in rows[sample.name][0]:
+                    results = gene_panel.findPanel(orderkey, combinedpanels, handler)
+                    if len(results) > 0:
+                        sample.panels.extend(results)
+                for orderkey in rows[sample.name][1]:
+                    sample.genes.append(gene.find_gene(orderkey))
             else:
-                sys.stderr("WARNING: some samples represented in the batch "
-                           "have no selected panels or genes in the --panels file. These will be annotated with UNKNOWN.")
+                sys.stderr.write("WARNING: sample ({0}) represented in the batch "
+                                 "has no selected panels or genes in the --panels file. "
+                                 "This sample will be annotated with 'ALL'.\n".format(sample.name))
+    except IOError as e:
+        sys.stderr.write("PIPELINE ERROR: {0}\nDoes your batch contain the panels.txt file?\n"
+                         "Creating a new panel.txt file in the working directory {1}.\n".
+                         format(e.message, workingDir))
+        if not os.path.exists(os.path.join(workingDir, "panels.txt")):
+            with open(os.path.join(workingDir, "panels.txt"), "w+") as panelsfile:
+                for sample in samples:
+                    print("\t".join((sample.name, "-", "-")))
+                    panelsfile.write("\t".join((sample.name, "-", "-")))
+        else:
+            sys.stderr.write("ABORTING: panels.txt file already exists.\n")
 
 
 def run_samples(args, sample_list):
+    if not handler.loaded:
+        handler.get_all_panels(False)  # Get local data
+
     samples = list()
     for sample in sample_list:
         location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")[1]
@@ -383,12 +363,12 @@ def run_samples(args, sample_list):
                              "After fixing the errors, rerun {1} --s {2}\n".
                              format(e.message, __file__, sample))
     # TODO: check for sexes
-    loadGenePanels(samples, args)
+    getGeneOrder(samples, args)
     update_database(samples, args.no_replace, args.test)
     for sample in samples:
 
         annotate(sample, args.test)
-        #calc_coverage(sample)
+        # calc_coverage(sample)
         create_excel_table(sample)
 
         if not args.keep:
@@ -435,14 +415,13 @@ def main(args):
         yesChoice = ['yes', 'y']
         noChoice = ['no', 'n']
         input = raw_input("WARNING: You are about to download the newest gene panels."
-                          " Do you wish to continue?(y/N) ").lower()
+                          " Do you wish to continue (y) or load from local data (n): ").lower()
         if input in yesChoice:
-            updatePanels()
+            handler.write_version_one_panels()
         elif input in noChoice:
             # print("Quitting.")
-            print(
-            "Loading and writing panel table to {} instead...".format(os.path.join(config.json_dir, "combined.txt")))
-            loadCombinedPanels("combined.txt")
+            print("Loading and writing panel tables instead...")
+            combinedpanels.write_table()
     else:
         print "No valid command input."
         print "Printing cfg values."
@@ -450,48 +429,47 @@ def main(args):
 
 
 if __name__ == "__main__":
-    try:
-        parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool.")
-        group = parser.add_mutually_exclusive_group()
-        group.add_argument("-b", "--batch",
-                           help="Find all unique .vcf files and their matching .bams."
-                                "Program will only run if each vcf has a matching .bam file.",
-                           action="store_true")
-        group.add_argument("-s", "--samples",
-                           help="Followed by a list of unique sample identifiers e.g. "
-                                "-s E0000001 E000002 E0000003 which are to be run through the pipeline. "
-                                "Will only run if samples have a matching vcf and bam file.",
-                           action="store", nargs='+', type=str)
-        group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
-                                               "Automatically updates the variant database.",
-                           action="store_true")
-        group.add_argument("-j", "--json", action="store_true", default=False,
-                           help="Updates the existing JSON panel database.")
-        parser.add_argument("-p", "--panels", type=argparse.FileType('r'))
-        parser.add_argument("-r", "--no_replace",
-                            help="Will skip copying the VCF file to the VCF directory specified in the config file"
-                                 " (don't overwrite VCF in the DB)."
-                                 "Useful in a test scenario when running large batches repeatedly or if the VCF is "
-                                 "not supposed to be inserted into the DB.",
-                            action="store_false", default=True)
-        parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
-                                                 "expects the DB to exist.",
-                            action="store_true", default=False)
-        parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
-                            action="store_true", default=False)
+    parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-b", "--batch",
+                       help="Find all unique .vcf files and their matching .bams."
+                            "Program will only run if each vcf has a matching .bam file.",
+                       action="store_true")
+    group.add_argument("-s", "--samples",
+                       help="Followed by a list of unique sample identifiers e.g. "
+                            "-s E0000001 E000002 E0000003 which are to be run through the pipeline. "
+                            "Will only run if samples have a matching vcf and bam file.",
+                       action="store", nargs='+', type=str)
+    group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
+                                           "Automatically updates the variant database.",
+                       action="store_true")
+    group.add_argument("-j", "--json", action="store_true", default=False,
+                       help="Updates the existing JSON panel database. "
+                            "Can also write the tab delimited table of all panels "
+                            "(version 1.0 and upper) and/or table of combined panels.")
+    parser.add_argument("-p", "--panels", type=argparse.FileType('r'))
+    parser.add_argument("-r", "--no_replace",
+                        help="Will skip copying the VCF file to the VCF directory specified in the config file"
+                             " (don't overwrite VCF in the DB)."
+                             "Useful in a test scenario when running large batches repeatedly or if the VCF is "
+                             "not supposed to be inserted into the DB.",
+                        action="store_false", default=True)
+    parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
+                                             "expects the DB to exist.",
+                        action="store_true", default=False)
+    parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
+                        action="store_true", default=False)
 
-        args = parser.parse_args()
-        if args.batch and args.panels is None:
-            parser.error("--batch requires --panels\nCheck --help panels for more info")
-        if args.samples is not None and args.panels is None:
-            parser.error("--samples requires --panels\nCheck --help panels for more info")
+    args = parser.parse_args()
+    if args.batch and args.panels is None:
+        parser.error("--batch requires --panels\nCheck {0} --help panels for more info".format(__file__))
+    if args.samples is not None and args.panels is None:
+        parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
-        main(args)
-    except Exception:
-        raise
-    finally:
-        for p in processes:
-            try:
-                p.terminate()
-            except OSError:
-                pass  # process is already dead
+    main(args)
+
+    for p in processes:
+        try:
+            p.terminate()
+        except OSError:
+            pass  # process is already dead
