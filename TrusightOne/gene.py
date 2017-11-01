@@ -50,11 +50,11 @@ def find_gene(name):
         if len(genes) == 1:
             return genes[0]
         else:
-            sys.stderr.write("PIPELINE ERROR: {0}\nThe gene {1} had several matches among the covered genes!\n"
+            sys.stderr.write("PIPELINE ERROR: \nThe gene {0} had several matches among the covered genes!\n"
                              .format(name))
             # TODO: What happens if there are several matches?
     else:
-        sys.stderr.write("PIPELINE ERROR: \nThe gene {1} was not found among the covered genes.\n".format(name))
+        sys.stderr.write("PIPELINE ERROR: \nThe gene {0} was not found among the covered genes.\n".format(name))
 
 
 def find_synonyms(gene):

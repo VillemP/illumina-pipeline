@@ -31,6 +31,7 @@ class Cell:
         return "Cell: row={0}, column={1}, value={2}".format(self.row_index,
                                                              self.column_index, self.value)
 
+
 def is_number(s):
     try:
         float(s)
