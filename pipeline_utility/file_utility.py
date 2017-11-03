@@ -92,9 +92,15 @@ def write_prefixes_list(dir, output):
 
     with open(output, "wb+") as prefixes:
         for prefix in samples:
-            prefix_clean = prefix[0].rsplit('.')[0]
-            prefixes.write(prefix_clean + "\n")
-            clean_prefixes.append(prefix_clean)
+            prefix_clean = prefix[0].rsplit('.')
+            if len(prefix_clean) == 2:
+                prefix_clean = prefix_clean[0]
+                prefixes.write(prefix_clean + "\n")
+                clean_prefixes.append(prefix_clean)
+            else:
+                pass
+                # This file might be an intermediary vcf file
+
     return clean_prefixes
 
 

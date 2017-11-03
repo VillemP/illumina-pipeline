@@ -18,7 +18,7 @@ def load_tso_genes(tsoPath):
                 gene_cov = line.rstrip().split("\t")
                 gene = Gene(panel=None, json=None, on_TSO=True)
                 gene.name = gene_cov[0]
-                gene.__coverage = gene_cov[1]
+                gene.coverage = gene_cov[1]
                 tso_genes.append(gene)
     except IOError as error:
         sys.stderr.write("PIPELINE ERROR: {0}\n"
@@ -37,9 +37,9 @@ def get_tso_status(gene):
         # Load TSO genes if currently not loaded.
         load_tso_genes(gene.panel.config.tsoGenes)
     # get the coverage from the tuple (name, coverage)
-    match_coverage = next((gene.coverage for gene in tso_genes if gene.name == gene.name), None)
+    match_coverage = next((g.coverage for g in tso_genes if g.name == gene.name), None)
     if match_coverage is not None:
-        gene._Gene__coverage = float(match_coverage)
+        gene.coverage = float(match_coverage)
         return True
     return False
 
@@ -78,7 +78,7 @@ class Gene(object):
             self.penetrance = json['Penetrance']
             self.phenotypes = json['Phenotypes']
             self.raw_json = json
-            self.__coverage = 0.0
+            self.coverage = 0.0
         else:
             self.ensemblegeneids = None
             self.name = None
@@ -90,7 +90,7 @@ class Gene(object):
             self.penetrance = None
             self.phenotypes = None
             self.raw_json = None
-            self.__coverage = 0
+            self.coverage = 0.0
         if on_TSO is None:
             self.on_TSO = get_tso_status(self)
         else:
@@ -99,10 +99,6 @@ class Gene(object):
     @property
     def evidence_level(self):
         return self.__confidence
-
-    @property
-    def coverage(self):
-        return self.__coverage
 
     def __str__(self):
         return self.name

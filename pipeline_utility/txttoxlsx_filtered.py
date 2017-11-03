@@ -108,7 +108,7 @@ def create_excel(name, filterset, files, ac_5_percent=None):
                     data.append(l)
                 table_length = len(data)
 
-                assert table_length > 0
+                assert table_length > 0, "Table cannot be "
                 assert table_width > 0
 
                 # Activate autofilter (mandatory) for any sheets containing filters

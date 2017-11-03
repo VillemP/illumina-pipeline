@@ -72,7 +72,7 @@ def update_vcf_list(vcfs_list):
 
     with open(config.db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
-        # db_vcfs.seek(0)
+
         curr_len = pipeline_utility.file_utility.file_len(config.db_vcf_dir)
 
         i = 0
@@ -144,8 +144,8 @@ def update_database(samples, replace, testmode):
             vcfslist.append(sample.vcflocation)
         copied, skipped = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
         updated, skip = update_vcf_list(vcfslist)
-        if copied > 0 and skipped + skip == 0:
-            # If there were any variant files updated (copied) or
+        if copied + updated > 0:
+            # If there were any variant files updated (copied) or new variants added to vcf list
             combine_variants()
     pass
 
@@ -302,8 +302,11 @@ def calc_coverage(sample):
 
 def create_excel_table(sample):
     filters = MiniseqFilters(sample.table_files)
-    create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, total_samples)
-    pass
+    if sample.annotated:
+        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, total_samples)
+    else:
+        sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
+                         "due to incomplete annotations!\n".format(sample.name))
 
 
 def run_samples(args, sample_list):

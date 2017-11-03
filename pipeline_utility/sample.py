@@ -29,4 +29,11 @@ class Sample(object):
 
     @property
     def final_order(self):
-        return None
+        order = []
+        for panel_order in self.panels:
+            for gene in panel_order[0].tso_genes:
+                order.append("\t".join((gene.name, panel_order[1])))
+        for g_order in self.genes:
+            order.append("\t".join((g_order[0].name, g_order[1])))
+
+        return order

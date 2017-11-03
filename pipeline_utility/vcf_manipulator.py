@@ -11,7 +11,11 @@ def load_annotation_file(annotation_file):
 def create_gene_dict(lines):
     d = {}
     for line in lines:
-        (key, value) = line.split("\t")
+        try:
+            (key, value) = line.split("\t")
+        except ValueError as e:
+            sys.stderr.write("ANNOTATOR error: {0}\n"
+                             "Your annotation file format might be incorrect (spaces instead of tabs)\n", e.message)
         if len(value) > 1:
             val = value[:-1]
         else:

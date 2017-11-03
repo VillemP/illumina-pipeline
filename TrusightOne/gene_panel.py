@@ -179,7 +179,7 @@ class CombinedPanels(dict):
             genes = list()
 
             for panel in panels:
-                genes.extend([g.name for g in panel.tso_genes])
+                genes.extend([g.name for g in panel.tso_genes if g.name not in genes])
             line = [key, len(genes)]
             line.extend(genes)
             lines.append(line)
@@ -203,7 +203,7 @@ class CombinedPanels(dict):
                 writer.writerow(row)
 
 
-def findPanel(key, combinedpanels, handler):
+def match_order_to_panels(key, combinedpanels, handler):
     try:
         panel = combinedpanels[key]
         return panel
