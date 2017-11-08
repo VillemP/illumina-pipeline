@@ -5,15 +5,18 @@ import yaml
 
 
 class BaseConfig(yaml.YAMLObject):
-    hidden_fields = ['_filepath']
-    yaml_tag = u"!BaseConfig"
+    # hidden_fields = ['_filepath']
+    # yaml_tag = u"!BaseConfig"
     yaml_loader = yaml.SafeLoader
     yaml_dumper = yaml.SafeDumper
     yaml_flow_style = False
 
     def __init__(self, filepath, **kwargs):
         super(BaseConfig, self).__init__()
+        self._hidden_fields = ['_hidden_fields', '_filepath', 'yaml_tag']
+        self.yaml_tag = unicode("!" + self.__class__.__name__)
         self._filepath = filepath
+        yaml.add_constructor(self.yaml_tag, self.__class__.cfg_constructor)
 
     def __str__(self):
         return "Config:\n{}".format(self.__dict__)
@@ -40,9 +43,10 @@ class BaseConfig(yaml.YAMLObject):
     @classmethod
     def to_yaml(cls, dumper, data):
         new_data = deepcopy(data)
-        for item in cls.hidden_fields:
-            del new_data.__dict__[item]
-        return dumper.represent_yaml_object(cls.yaml_tag, new_data, cls,
+        for item in new_data._hidden_fields:
+            if item in new_data.__dict__:
+                del new_data.__dict__[item]
+        return dumper.represent_yaml_object(new_data.yaml_tag, new_data, cls,
                                             flow_style=cls.yaml_flow_style)
 
     # Static constructor method in class for clarity

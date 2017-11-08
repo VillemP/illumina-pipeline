@@ -5,17 +5,17 @@ import subprocess
 import sys
 from tempfile import NamedTemporaryFile
 
-import gene
-import gene_panel
+import TrusightOne.gene
+import TrusightOne.gene_panel
+import TrusightOne.truesightoneconfig
 import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
-import truesightoneconfig
+from TrusightOne.gene_panel import CombinedPanels
 from TrusightOne.jsonhandler import JsonHandler
-from gene_panel import CombinedPanels
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
+from TrusightOne.tso_excel_filters import TruesightOneFilters
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update
 from pipeline_utility.txttoxlsx_filtered import create_excel
-from tso_excel_filters import TruesightOneFilters
 
 try:
     from cStringIO import StringIO
@@ -26,10 +26,9 @@ workingDir = os.getcwd()
 processes = []
 tso_genes = list()
 
-config = truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "tso.yaml"))
+config = TrusightOne.truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "tso.yaml"))
 handler = JsonHandler(config.json_dir, config)
-handler.get_all_panels(False)  # Get local data
-combinedpanels = CombinedPanels(handler)
+combinedpanels = None
 total_samples = 0
 db_name_samples = config.db_name  # Updated later with current samples name
 project = os.path.basename(os.path.normpath(workingDir))
@@ -204,7 +203,7 @@ def annotate(sample, testmode):
         args_gene_panel = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__),
                                                            sample.genes_tempfile.name,
                                                            "GeneReq"))
-        args_5 = shlex.shlex('java -jar {0} '
+        args_5 = shlex.shlex('java -Xmx4g -jar {0} '
                              'extractFields '
                              '- '
                              '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
@@ -338,13 +337,13 @@ def getGeneOrder(samples, args):
                 print("{0} {1}".format(sample.name, rows[sample.name]))
                 # Orderkey is the panel identifier used (e.g. ID, METABO, name or panel.id)
                 for orderkey in rows[sample.name][0]:
-                    results = gene_panel.match_order_to_panels(orderkey, combinedpanels, handler)
+                    results = TrusightOne.gene_panel.match_order_to_panels(orderkey, combinedpanels, handler)
                     if len(results) > 0:
                         for panel in results:
                             sample.panels.append((panel, orderkey))
                 # Orderkey is the gene name
                 for orderkey in rows[sample.name][1]:
-                    result = gene.find_gene(orderkey)
+                    result = TrusightOne.gene.find_gene(orderkey)
                     if result is not None:
                         sample.genes.append((result, "ORDERED"))
             else:
@@ -413,8 +412,13 @@ def run_samples(args, sample_list):
 
 
 def main(args):
+    global combinedpanels
     samples = list()
-
+    yesChoice = ['yes', 'y']
+    noChoice = ['no', 'n']
+    if not args.update or not args.update:
+        handler.get_all_panels(False)  # Get local data
+        combinedpanels = CombinedPanels(handler)
     # True if replace, False if --no_replace, passed as an argument in update_database()
     if not args.no_replace:
         sys.stderr.writelines(
@@ -434,16 +438,25 @@ def main(args):
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
         run_samples(args, args.samples)
     elif args.json:
-        yesChoice = ['yes', 'y']
-        noChoice = ['no', 'n']
+
         input = raw_input("WARNING: You are about to download the newest gene panels."
-                          " Do you wish to continue (y) or load from local data (n): ").lower()
+                          " Do you wish to continue {0} or load from local data {1}: "
+                          .format(yesChoice, noChoice)).lower()
         if input in yesChoice:
             handler.write_version_one_panels()
         elif input in noChoice:
-            # print("Quitting.")
             print("Loading and writing panel tables instead...")
             combinedpanels.write_table()
+    elif args.update:
+        input = raw_input("WARNING: You are about to download the OMIM and HPO terms."
+                          " The updated files will be downloaded to {0}.\n"
+                          "Do you wish to continue {1} or not {2}: "
+                          .format(config.custom_annotation_dir, yesChoice, noChoice)).lower()
+        if input in yesChoice:
+            db_update.update_all(config.custom_annotation_dir)
+        elif input in noChoice:
+            print("Quitting...")
+
     else:
         print "No valid command input."
         print "Printing cfg values."
@@ -469,7 +482,13 @@ if __name__ == "__main__":
                        help="Updates the existing JSON panel database. "
                             "Can also write the tab delimited table of all panels "
                             "(version 1.0 and upper) and/or table of combined panels.")
-    parser.add_argument("-p", "--panels", type=argparse.FileType('r'))
+    group.add_argument("-u", "--update", action="store_true", default=False,
+                       help="Updates the custom annotations for HPO, OMIM terms.")
+    parser.add_argument("-p", "--panels", type=argparse.FileType('r'),
+                        help="The input file that determines the genes or panels that will be marked in the final excel"
+                             " file (column GeneReq) with an extra annotation (ORDERED for genes and panel name for "
+                             "each gene represented in the panel. "
+                             "Genes can have numerous annotations depending on the complexity of the order.")
     parser.add_argument("-r", "--no_replace",
                         help="Will skip copying the VCF file to the VCF directory specified in the config file"
                              " (don't overwrite VCF in the DB)."

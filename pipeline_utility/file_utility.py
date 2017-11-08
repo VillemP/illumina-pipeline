@@ -19,7 +19,7 @@ def find_file(main_dir, filename):
     Will find the first file with the exact name match in a dir tree. Otherwise returns None.
     :param main_dir: The upmost directory to start the search in, will walk through subdirectories
     :param filename: The filename to be searched.
-    :return: tuple(filename, directory)
+    :return: tuple(filename, full path)
     """
     assert os.path.exists(main_dir), "Path {} does not exist.".format(main_dir)
 
@@ -143,6 +143,22 @@ def file_len(fname):
                 pass
         return i + 1
     return None
+
+
+def count_unique_names(infile, col, seperator="\t"):
+    names = []
+    if os.path.exists(infile):
+        with open(infile) as f:
+            for i, l in enumerate(f):
+                cols = l.split(seperator)
+                if not col > len(cols):
+                    names.append(cols[col])
+                else:
+                    raise IndexError("Is your seperator correct? "
+                                     "There weren't enough columns "
+                                     "after splitting the line #{0}\n{1}!".format(i, l))
+    unique = set(names)
+    return len(unique)
 
 
 if __name__ == "__main__":

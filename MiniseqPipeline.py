@@ -5,8 +5,6 @@ import shutil
 import subprocess
 import sys
 
-import yaml
-
 import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
@@ -22,7 +20,7 @@ except:
     from StringIO import StringIO
 
 processes = []
-yaml.add_constructor(MiniseqConfig.yaml_tag, MiniseqConfig.cfg_constructor)
+# Location of the cfg file is in the same folder as this script
 cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'miniseq.yaml')
 config = MiniseqConfig(cfg_path)
 config = config.load()

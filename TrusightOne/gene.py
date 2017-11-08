@@ -36,7 +36,7 @@ def get_tso_status(gene):
     if len(tso_genes) == 0:
         # Load TSO genes if currently not loaded.
         load_tso_genes(gene.panel.config.tsoGenes)
-    # get the coverage from the tuple (name, coverage)
+    # get the coverage from TSO genes (name based matching, if match found --> gene is covered)
     match_coverage = next((g.coverage for g in tso_genes if g.name == gene.name), None)
     if match_coverage is not None:
         gene.coverage = float(match_coverage)
@@ -78,7 +78,7 @@ class Gene(object):
             self.penetrance = json['Penetrance']
             self.phenotypes = json['Phenotypes']
             self.raw_json = json
-            self.coverage = 0.0
+            self.coverage = -1.0
         else:
             self.ensemblegeneids = None
             self.name = None
@@ -90,7 +90,7 @@ class Gene(object):
             self.penetrance = None
             self.phenotypes = None
             self.raw_json = None
-            self.coverage = 0.0
+            self.coverage = -1.0
         if on_TSO is None:
             self.on_TSO = get_tso_status(self)
         else:
