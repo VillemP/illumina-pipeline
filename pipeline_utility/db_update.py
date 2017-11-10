@@ -1,9 +1,9 @@
 import os
-import sys
 import urllib
+import urlparse
 
-from conda._vendor.progressbar import ProgressBar, Bar, Percentage
 from jenkinsapi.jenkins import Jenkins
+from progressbar import ProgressBar, Bar, Percentage
 
 from pipeline_utility import file_utility
 from pipeline_utility.baseconfig import BaseConfig
@@ -17,11 +17,11 @@ class HPOURLopener(urllib.FancyURLopener):
 class AnnotationDbCfg(BaseConfig):
     yaml_tag = u"!AnnotationDbCfg"
 
-    def __init__(self, filepath, omim_auth_key="", omim_host="api.omim.org",
+    def __init__(self, filepath, omim_api_key="", omim_host="api.omim.org",
                  hpo_host="http://compbio.charite.de/jenkins/job/hpo.annotations.monthly/lastStableBuild/api/python",
                  directory=""):
         super(AnnotationDbCfg, self).__init__(filepath)
-        self.omim_auth_key = omim_auth_key
+        self.omim_api_key = omim_api_key
         self.omim_host = omim_host
         self.hpo_host = hpo_host
         self.directory = directory
@@ -51,7 +51,7 @@ class AnnotationHandler(JsonHandlerBase):
         downloaded = block_num * block_size
         if downloaded < total_size:
             self.pbar.update(downloaded)
-            sys.stdout.flush()
+            # sys.stdout.flush()
         else:
             self.pbar.finish()
             self.pbar = None
@@ -68,20 +68,42 @@ class AnnotationHandler(JsonHandlerBase):
         print("Finished download: {0}".format(filelist))
         return data['id'], filelist
 
-    def load_omim_index(self):
-        name = "omim_index.txt"
-        index = self.load_index(self.config.directory, name)
-        if index:
-            return index
-        else:
-            return self.save_index(self.query(self.config.omim_host)[1], self.config.directory, name)
+    def downloadOMIMterms(self, fileName):
+        filename, headers = urllib.urlretrieve(urlparse.urljoin(self.config.omim_host,
+                                                                os.path.join(self.config.omim_api_key,
+                                                                             fileName)),
+                                               os.path.join(self.config.directory, fileName),
+                                               self.show_progress)
+        return filename
+
+    def splitOMIMterms(self, infile, outfile):
+        with open(infile) as f:
+            with open(outfile, "wb+") as out:
+                for line in f.readlines():
+                    if not line.startswith("#"):
+                        line = line.split("\t")
+                        if len(line) >= 13:
+                            # OMIM gene symbols
+                            genes = []
+                            genes.extend([col.strip() for col in line[6].split(",")])
+
+                            # HGNC gene symbol
+                            if line[8] not in genes:
+                                genes.append(line[8])
+                            # Clear up any empty lines
+                            genes = [g for g in genes if g != "" and g is not None]
+                            for gene in genes:
+                                # GENE<tab>Phenotype/disease
+                                out.write("\t".join((gene, line[12])) + "\n")
 
     def splitHPOterms(self, infile, outfile):
         with open(infile) as f:
             with open(outfile, "wb+") as out:
-                line = f.readline().split("\t")
-                if len(line) >= 3:
-                    out.write("\t".join((line[1], line[2])) + "\n")
+                for line in f.readlines():
+                    if not line.startswith("#"):
+                        line = line.split("\t")
+                        if len(line) >= 3:
+                            out.write("\t".join((line[1], line[2])) + "\n")
 
 
 def loadCfg(cfg_path):
@@ -91,28 +113,53 @@ def loadCfg(cfg_path):
     return cfg
 
 
-def update_all(annotationFolder):
-    cfg = loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "annotations.yaml"))
-    handler = AnnotationHandler(cfg)
-    version, files = handler.download_hpo_terms(handler.load_hpo_index())
-    # Check if the gene_phenotypes file was among the downloaded files
-    match = [f for f in files if f.strip().lower() ==
-             os.path.join(cfg.directory, "ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt".lower())]
-    if len(match) > 0:
-        newfile = os.path.join(annotationFolder, "gene.hpoterm.txt")
-        oldfile = os.path.join(annotationFolder, "gene.hpoterm.OLD.txt")
-        # Make a backup of the old phenotypes file
-        if os.path.exists(newfile):
-            os.rename(newfile, oldfile)
-        genes_to_phenotypes = file_utility.find_file(cfg.directory, match[0])[1]
-        handler.splitHPOterms(genes_to_phenotypes, newfile)
-        newlen = file_utility.file_len(newfile)
-        newgenes = file_utility.count_unique_names(newfile, 1)
+cfg = loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "annotations.yaml"))
+handler = AnnotationHandler(cfg)
 
-        oldlen = file_utility.file_len(oldfile)
-        oldgenes = file_utility.count_unique_names(newfile, 1)
-        print("New {0} file contains {1} lines for {2} unique gene names.\n"
-              "The old file is saved as a backup in {3} and contained {4} lines for {5} unique genes.".
-              format(newfile, newlen, newgenes, oldfile, oldlen, oldgenes))
-    print version
-    print files
+
+def _update_db(annotationFolder, externalFilename, outfile, downloadedFiles, splithook):
+    match = [f for f in downloadedFiles if f.strip() ==
+             os.path.join(cfg.directory, externalFilename)]
+    if len(match) > 0:
+        newfile = os.path.join(annotationFolder, outfile)
+        oldfile = os.path.join(annotationFolder, outfile + ".bak")
+        # Make a backup of the old annotation file
+        if os.path.exists(newfile):
+            print "Creating backup: {0}".format(oldfile)
+            os.rename(newfile, oldfile)
+        if os.path.exists(match[0]):
+            genes_to_phenotypes = match[0]
+            splithook(genes_to_phenotypes, newfile)
+            newlen = file_utility.file_len(newfile)
+            newgenes = file_utility.count_unique_names(newfile, 0)
+
+            oldlen = file_utility.file_len(oldfile)
+            oldgenes = file_utility.count_unique_names(oldfile, 0)
+            print("New {0} file contains {1} lines for {2} unique gene symbols.\n"
+                  "The old file is saved as a backup in {3} and contained {4} lines for {5} unique genes.".
+                  format(newfile, newlen, newgenes, oldfile, oldlen, oldgenes))
+
+
+def update_omim(annotationFolder, test):
+    if test:
+        files = file_utility.find_filetype(annotationFolder, "txt")
+        files = [f[1] for f in files]
+    else:
+        files = handler.downloadOMIMterms("genemap2.txt")
+    _update_db(annotationFolder, "genemap2.txt", "gene.omim_disease_name.synonyms.txt", files,
+               handler.splitOMIMterms)
+
+
+def update_hpo(annotationFolder, test):
+    if test:
+        files = file_utility.find_filetype(annotationFolder, "txt")
+        files = [f[1] for f in files]
+    else:
+        version, files = handler.download_hpo_terms(handler.load_hpo_index())
+    _update_db(annotationFolder, "ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt", "gene.hpoterm.txt", files,
+               handler.splitHPOterms)
+
+
+def update_all(annotationFolder, test):
+    update_hpo(annotationFolder, test)
+    update_omim(annotationFolder, test)

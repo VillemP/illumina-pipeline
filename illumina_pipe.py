@@ -453,7 +453,7 @@ def main(args):
                           "Do you wish to continue {1} or not {2}: "
                           .format(config.custom_annotation_dir, yesChoice, noChoice)).lower()
         if input in yesChoice:
-            db_update.update_all(config.custom_annotation_dir)
+            db_update.update_all(config.custom_annotation_dir, args.test)
         elif input in noChoice:
             print("Quitting...")
 
