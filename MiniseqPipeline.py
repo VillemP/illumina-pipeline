@@ -382,7 +382,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(prog="MiniSeq pipeline command-line tool.")
         group = parser.add_mutually_exclusive_group()
         group.add_argument("-b", "--batch",
-                           help="Find all unique .vcf files and their matching .bams."
+                           help="Find all unique .vcf files and their matching .bams. "
                                 "Program will only run if each vcf has a matching .bam file.",
                            action="store_true")
         group.add_argument("-s", "--samples",

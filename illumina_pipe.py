@@ -467,7 +467,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-b", "--batch",
-                       help="Find all unique .vcf files and their matching .bams."
+                       help="Find all unique .vcf files and their matching .bams. in the current directory tree. "
                             "Program will only run if each vcf has a matching .bam file.",
                        action="store_true")
     group.add_argument("-s", "--samples",
@@ -486,9 +486,16 @@ if __name__ == "__main__":
                        help="Updates the custom annotations for HPO, OMIM terms.")
     parser.add_argument("-p", "--panels", type=argparse.FileType('r'),
                         help="The input file that determines the genes or panels that will be marked in the final excel"
-                             " file (column GeneReq) with an extra annotation (ORDERED for genes and panel name for "
-                             "each gene represented in the panel. "
-                             "Genes can have numerous annotations depending on the complexity of the order.")
+                             " file (column GeneReq) with an extra annotation "
+                             "(ORDERED for genes and PANEL_KEY/PANEL_ID/PANEL_NAME) for "
+                             "each gene represented in the panel). "
+                             "Genes can have numerous annotations depending on the complexity of the order. An example "
+                             "--panels panels.txt file has one or more samples (matching the --samples or --batch arg"
+                             " with the structure\n\n"
+                             "\tSAMPLE_ID_1<tab>PANEL_NAME_1, PANEL_2, PANEL_ID, etc<tab>GENE1, DMD, FBN1 or "
+                             "-<newline>\n"
+                             "SAMPLE_ID_2<tab>PANEL_2<tab>-\\n\n"
+                             "SAMPLE_ID_3<tab>-<tab>GENE2, DMD, FBN1\\n\n\n")
     parser.add_argument("-r", "--no_replace",
                         help="Will skip copying the VCF file to the VCF directory specified in the config file"
                              " (don't overwrite VCF in the DB)."
