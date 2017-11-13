@@ -34,6 +34,7 @@ class TruesightOneConfig(BaseConfig):
 
 
 def loadCfg(cfg_path):
+    # type: (str) -> TruesightOneConfig
     cfg = TruesightOneConfig(cfg_path)
     cfg = cfg.load()
 

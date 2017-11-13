@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from tempfile import NamedTemporaryFile
 
 import TrusightOne.gene
@@ -39,9 +40,20 @@ def logdata(stdout):
     # TODO: Fix logging
     with open(config.logfile, "a+") as log:
         for line in iter(stdout.readline, b''):  # b'\n'-separated lines
-            # log.write(time.time() + "\t" + line + "\n")
-            log.write(line)
+            log.write(time.time() + "\t" + line + "\n")
+            # log.write(line)
             print ("{}".format(line.rstrip()))
+
+
+def sortlog():
+    with open(config.logfile, "wb+") as log:
+        lines = log.readlines()
+        lines.sort()
+        for line in lines:
+            text = line.split("\t")
+            # Rejoin the text with any tabs that were split out
+            # Removes the timestamp.
+            log.write("\t".join(text[1:]) + "\n")
 
 
 # deprecated, used with --old
@@ -150,6 +162,34 @@ def update_database(samples, replace, testmode):
     pass
 
 
+def genderCheck(samples, test):
+    out = project + ".merged.vcf"
+    vcflist = ""
+    for sample in samples:
+        vcflist = vcflist + "--variant:{0} {1} \\".format(sample.name, sample.vcflocation)
+    if not test:
+        args = shlex.split('java -Xmx10g -jar {0} '
+                           '-T CombineVariants '
+                           '-R {1} '
+                           '-V {2} '
+                           '-o {3} '
+                           '-log {4} '
+                           '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
+                                                                   out, config.logfile))
+
+        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+        logdata(proc.stdout)
+        proc.wait()
+
+        het_args = shlex.split("vcftools --vcf {0} "
+                               "--remove-filtered-all --chr chrX "
+                               "--from-bp 2699520 --to-bp 154931043 "
+                               "--het --out {1}".format(out, project))
+        proc = subprocess.Popen(het_args, shell=False, stderr=subprocess.PIPE)
+        logdata(proc.stdout)
+        proc.wait()
+
+
 def annotate(sample, testmode):
     """
 
@@ -245,6 +285,7 @@ def annotate(sample, testmode):
                 sample.table_files.append(os.path.abspath(table.name))
             for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
                 processes.append(proc)
+                logdata(proc.stderr)
         # TODO: Switch to multiprocessing?
         # jobs = multiprocessing.Pool(1)
         # annotator = multiprocessing.Process()
@@ -302,9 +343,6 @@ def calc_coverage(sample):
         f.write(to_table.communicate()[0])
     diagnose.wait()
     depth.wait()
-
-    # with to_table.stderr:
-    #    logdata(to_table.stderr)
 
     sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                            sample.name + '.requested.sample_summary')))
@@ -381,9 +419,11 @@ def run_samples(args, sample_list):
                              "After fixing the errors, rerun {1} --s {2}\n".
                              format(e.message, __file__, sample))
             pass
-    # TODO: check for sexes
+    genderCheck(samples, args.test)
     getGeneOrder(samples, args)
-    update_database(samples, args.no_replace, args.test)
+    # DB is already updated
+    if not args.old:
+        update_database(samples, args.no_replace, args.test)
     for sample in samples:
         try:
             annotate(sample, args.test)
@@ -414,11 +454,17 @@ def run_samples(args, sample_list):
 def main(args):
     global combinedpanels
     samples = list()
+    prefixes = list()
     yesChoice = ['yes', 'y']
     noChoice = ['no', 'n']
     if not args.update or not args.update:
         handler.get_all_panels(False)  # Get local data
         combinedpanels = CombinedPanels(handler)
+
+    # Create list files for running legacy scripts for CONIFER
+    if args.legacy:
+        prefixes, vcfslist, bamlist = create_configs()
+
     # True if replace, False if --no_replace, passed as an argument in update_database()
     if not args.no_replace:
         sys.stderr.writelines(
@@ -426,7 +472,9 @@ def main(args):
             "Old variant files still exist. (--no_replace is active)\n")
 
     if args.batch:
-        prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
+        # This means args.legacy is False and we already have our list of prefixes
+        if len(prefixes) == 0 and not args.legacy:
+            prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
         run_samples(args, prefixes)
 
     elif args.old:
@@ -507,6 +555,8 @@ if __name__ == "__main__":
                         action="store_true", default=False)
     parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
                         action="store_true", default=False)
+    parser.add_argument("-l", "--legacy", action="store_true", default=False, help="Create the list files required "
+                                                                                   "for running legacy bash scripts.")
 
     args = parser.parse_args()
     if args.batch and args.panels is None:
@@ -515,6 +565,7 @@ if __name__ == "__main__":
         parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
     main(args)
+    sortlog()
 
     for p in processes:
         try:
