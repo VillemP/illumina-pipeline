@@ -208,7 +208,7 @@ def annotate(sample, testmode):
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
                          '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20150629 '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20170130 '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
     if testmode:
