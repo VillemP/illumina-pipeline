@@ -21,6 +21,7 @@ from pipeline_utility.txttoxlsx_filtered import create_excel
 try:
     from cStringIO import StringIO
 except ImportError:
+    print("cStringIO is not installed, I/O is slower.")
     from StringIO import StringIO
 
 workingDir = os.getcwd()
@@ -30,6 +31,7 @@ tso_genes = list()
 config = TrusightOne.truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "tso.yaml"))
 handler = JsonHandler(config.json_dir, config)
 combinedpanels = None
+# Number of samples in the DB
 total_samples = 0
 db_name_samples = config.db_name  # Updated later with current samples name
 project = os.path.basename(os.path.normpath(workingDir))
@@ -39,21 +41,25 @@ assert os.path.exists(config.annotator)
 def logdata(stdout):
     # TODO: Fix logging
     with open(config.logfile, "a+") as log:
-        for line in iter(stdout.readline, b''):  # b'\n'-separated lines
-            log.write(time.time() + "\t" + line + "\n")
-            # log.write(line)
-            print ("{}".format(line.rstrip()))
+        if stdout is not None:
+            for line in iter(stdout.readline, b''):  # b'\n'-separated lines
+                log.write(str(time.time()) + "\t" + line)
+                # log.write(line)
+                print ("{}".format(line.rstrip()))
+        else:
+            sys.stderr.write("\nPIPELINE ERROR: Log connected to empty subprocess!\n")
 
 
 def sortlog():
-    with open(config.logfile, "wb+") as log:
-        lines = log.readlines()
-        lines.sort()
-        for line in lines:
-            text = line.split("\t")
-            # Rejoin the text with any tabs that were split out
-            # Removes the timestamp.
-            log.write("\t".join(text[1:]) + "\n")
+    with open(config.logfile) as log:
+        with open(config.logfile + ".sorted.txt", "wb+") as out:
+            lines = log.readlines()
+            lines.sort()
+            for line in lines:
+                text = line.split("\t")
+                # Rejoin the text with any tabs that were split out
+                # Removes the timestamp.
+                out.write("\t".join(text[1:]) + "\n")
 
 
 # deprecated, used with --old
@@ -166,18 +172,21 @@ def genderCheck(samples, test):
     out = project + ".merged.vcf"
     vcflist = ""
     for sample in samples:
-        vcflist = vcflist + "--variant:{0} {1} \\".format(sample.name, sample.vcflocation)
+        vcflist = vcflist + "--variant:{0} {1}".format(sample.name, sample.vcflocation)
+        # print vcflist
     if not test:
         args = shlex.split('java -Xmx10g -jar {0} '
                            '-T CombineVariants '
-                           '-R {1} '
-                           '-V {2} '
-                           '-o {3} '
-                           '-log {4} '
+                           '-R {1} \\'
+                           '{2} \\'
+                           '-o {3} \\'
+                           '-log {4} \\'
                            '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
                                                                    out, config.logfile))
 
-        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        processes.append(proc)
+        logdata(proc.stderr)
         logdata(proc.stdout)
         proc.wait()
 
@@ -186,7 +195,8 @@ def genderCheck(samples, test):
                                "--from-bp 2699520 --to-bp 154931043 "
                                "--het --out {1}".format(out, project))
         proc = subprocess.Popen(het_args, shell=False, stderr=subprocess.PIPE)
-        logdata(proc.stdout)
+        processes.append(proc)
+        logdata(proc.stderr)
         proc.wait()
 
 
@@ -212,7 +222,7 @@ def annotate(sample, testmode):
             args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                                "-out {3} "
                                "-remove -protocol "
-                               "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20150629 "
+                               "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
                                "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
                                "-operation g,f,f,f,f,f,f "
                                "-nastring . "
@@ -233,6 +243,7 @@ def annotate(sample, testmode):
         hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
         panels = os.path.join(config.custom_annotation_dir, "TSO_genepanels.txt")
 
+        # Add extra annotations to the VCF
         args_1 = shlex.shlex(
             "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
         args_2 = shlex.shlex(
@@ -243,6 +254,7 @@ def annotate(sample, testmode):
         args_gene_panel = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__),
                                                            sample.genes_tempfile.name,
                                                            "GeneReq"))
+        # Extract the fields from the annotated VCF
         args_5 = shlex.shlex('java -Xmx4g -jar {0} '
                              'extractFields '
                              '- '
@@ -250,12 +262,16 @@ def annotate(sample, testmode):
                              'Gene.refGene GeneReq Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
                              '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
                              'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                             'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20170130 '
+                             'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
+                             'CLNDSDB CLNDSDBID '
                              'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                              .format(config.snpsift))
         if testmode:
             total_samples = 1
+        # Splits the last column (allele 1 depth, allele 2 depth into 3 columns:
+        # (reference reads, variant reads, percentage),
         args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
+        # Adds the custom local DB frequencies to the n'th column (default is the 23. column)
         args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
                                                              os.path.join(config.db_directory,
                                                                           db_name_samples),
@@ -351,9 +367,9 @@ def calc_coverage(sample):
 
 
 def create_excel_table(sample):
-    filters = TruesightOneFilters(sample.table_files)
+    filters = TruesightOneFilters(total_samples, sample.table_files)
     if sample.annotated:
-        create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files, total_samples)
+        create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files)
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -364,9 +380,11 @@ def getGeneOrder(samples, args):
     rows = {}
     try:
         for line in args.panels.readlines():
-            (prefix, panels, genes) = line.split('\t')
-            rows[prefix] = ([pan.strip().upper() for pan in panels.split(",")],
-                            [g.strip().upper() for g in genes.split(",")])
+            # Don't read empty lines or comments
+            if len(line) > 0 and not line.startswith("#"):
+                (prefix, panels, genes) = line.split('\t')
+                rows[prefix] = ([pan.strip().upper() for pan in panels.split(",")],
+                                [g.strip().upper() for g in genes.split(",")])
         if len(rows) > len(samples):
             sys.stderr("WARNING: some samples represented in the --panels file "
                        "have no matching samples in the batch. These will be ignored.")
@@ -457,7 +475,9 @@ def main(args):
     prefixes = list()
     yesChoice = ['yes', 'y']
     noChoice = ['no', 'n']
-    if not args.update or not args.update:
+
+    # Will skip loading the panels from external (boolean) or local data
+    if not args.update or not args.legacy:
         handler.get_all_panels(False)  # Get local data
         combinedpanels = CombinedPanels(handler)
 

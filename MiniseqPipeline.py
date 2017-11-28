@@ -175,7 +175,7 @@ def annotate(sample, testmode):
         args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                            "-out {3} "
                            "-remove -protocol "
-                           "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20150629 "
+                           "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
                            "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
                            "-operation g,f,f,f,f,f,f "
                            "-nastring . "
@@ -301,7 +301,7 @@ def calc_coverage(sample):
 def create_excel_table(sample):
     filters = MiniseqFilters(sample.table_files)
     if sample.annotated:
-        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, total_samples)
+        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files)
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))

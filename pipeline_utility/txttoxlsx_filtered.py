@@ -11,8 +11,6 @@ import sys
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name
 
-from pipeline_utility.filter import Filter
-
 
 class Cell:
     def __init__(self, row_i, col_i, value, sheet):
@@ -86,7 +84,9 @@ def check_filter(cell, filter):
     return False
 
 
-def create_excel(name, filterset, files, ac_5_percent=None):
+def create_excel(name, filterset, files):
+    reload(sys)
+    sys.setdefaultencoding('utf8')
     wbook = xlsxwriter.Workbook()
     wbook.filename = name
     print("Starting excel file {0} with {1} input files.".format(name, len(files)))
@@ -94,8 +94,8 @@ def create_excel(name, filterset, files, ac_5_percent=None):
     try:
         ws = []
         for i, infile in enumerate(files):
-            ws.append(("worksheet%d", i))
-            print "\nStarting input file " + str(i + 1) + ": " + infile
+            ws.append(("worksheet%d" % i))
+            print("Starting input file " + str(i + 1) + ": " + infile)
             ws[i] = wbook.add_worksheet()
             data = []
             # filters.append(dict([])) # expand the filters according to sheets, each sheet has a dict, filters[sheet]
@@ -108,7 +108,7 @@ def create_excel(name, filterset, files, ac_5_percent=None):
                     data.append(l)
                 table_length = len(data)
 
-                assert table_length > 0, "Table cannot be "
+                assert table_length > 0, "Table cannot be empty."
                 assert table_width > 0
 
                 # Activate autofilter (mandatory) for any sheets containing filters
@@ -116,15 +116,6 @@ def create_excel(name, filterset, files, ac_5_percent=None):
                     if len(filterset[i]) > 0:
                         ws[i].autofilter(0, 0, table_length, table_width)
                 if i == 0:
-
-                    # Terrible workaround for local DB sample count, if the number isn't provided in args.
-                    # Uses regex to get the count from the header
-                    if ac_5_percent is None:
-                        ac_5_percent = current_db(Cell(0, 21, data[0][21], 0))
-                        filterset[0] = filterset[0]['V'] = Filter('V', '{{0}} <= {}'.format(ac_5_percent),
-                                                                  'db_AC <= {} or db_AC == .'.format(ac_5_percent),
-                                                                  False)  # n(db_value)_AC <= 5% of alleles
-
                     add_filters(ws[0], filterset)
 
                 row_index = 0
@@ -160,31 +151,31 @@ def create_excel(name, filterset, files, ac_5_percent=None):
                     col_index = 0  # start from the beginning of the row
                     row_filtered = False
 
-                print "Total rows: {0}\nFiltered rows: {1}".format(table_length, filtered)
+                print("Total rows: {0}\nFiltered rows: {1}".format(table_length, filtered))
+                print("Done!")
                 # print "Filters active {0}.\n{1}".format(len(filters[i]),
                 #                                       '\n'.join(str(v) for v in filters[i].itervalues()))
     except (Exception) as error:
-        print "Error in creating excel file {0}".format(wbook.filename)
-        raise error
+        print("Error in creating excel file {0}".format(wbook.filename))
+        print("Unexpected error:", sys.exc_info()[0])
+        raise
     finally:
         wbook.close()
 
 
 if __name__ == "__main__":
-    reload(sys)
-    sys.setdefaultencoding('utf8')
     inputnr = len(sys.argv) - 2
 
-    print "\nNr of inputfiles: " + str(inputnr)
+    print("Nr of inputfiles: " + str(inputnr))
 
     for i in range(0, inputnr):
         print "Input file " + str(i + 1) + ": " + sys.argv[i + 1]
 
-    print "\nOutput is written to: " + sys.argv[-1]
+    print("Output is written to: " + sys.argv[-1])
 
     # TODO: Enable filtering from script mode
     # Currently will not activate any filters from script, filters must be created manually e.g.
     # filters=TruesightOneFilters(current_db)
     filters = [dict([])]
-    create_excel(sys.argv[-1], filters, sys.argv[1:-1], 0)
-    print "Done with excel file {}".format(sys.argv[-1])
+    create_excel(sys.argv[-1], filters, sys.argv[1:-1])
+    print("Done with excel file {}".format(sys.argv[-1]))

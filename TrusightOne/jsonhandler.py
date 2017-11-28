@@ -53,6 +53,7 @@ class JsonHandler(JsonHandlerBase):
             json.dump(panel.genes_json, genes_file, sort_keys=True, indent=4)
 
     def load_panels(self, location, callback=None):
+        print("Initializing panels...")
         panels = file_utility.find_filetype(location, ".json")
         len_panels = len(panels)
         if len(self.panels) > 0:
@@ -73,7 +74,7 @@ class JsonHandler(JsonHandlerBase):
                     self.panels.append(newpanel)
                     if callback is not None:
                         callback(i + 1, len_panels)
-            print "Loaded {0} panels from local data.".format(len(self.panels))
+            print("Loaded {0} panels from local data.".format(len(self.panels)))
             return self.panels
         else:
             self.get_all_panels()
