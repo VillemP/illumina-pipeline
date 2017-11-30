@@ -9,7 +9,7 @@ import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
-from miniseq.miniseq_excel_filters import MiniseqFilters
+from miniseq.miniseq_excel_filters import MiniseqFilters, MiniseqPostprocess, MiniseqFormats
 from miniseq.miniseqconfig import MiniseqConfig
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 from pipeline_utility.txttoxlsx_filtered import create_excel
@@ -300,8 +300,10 @@ def calc_coverage(sample):
 
 def create_excel_table(sample):
     filters = MiniseqFilters(sample.table_files)
+    post = MiniseqPostprocess(sample.table_files)
+    formats = MiniseqFormats(sample.table_files)
     if sample.annotated:
-        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files)
+        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, post, formats)
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))

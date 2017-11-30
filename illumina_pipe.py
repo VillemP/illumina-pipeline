@@ -15,6 +15,8 @@ import pipeline_utility.sample
 from TrusightOne.gene_panel import CombinedPanels
 from TrusightOne.jsonhandler import JsonHandler
 from TrusightOne.tso_excel_filters import TruesightOneFilters
+from TrusightOne.tso_excel_filters import TruesightOneFormats
+from TrusightOne.tso_excel_filters import TruesightOnePostprocess
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
@@ -233,6 +235,7 @@ def annotate(sample, testmode):
             proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
             with proc.stderr:
                 logdata(proc.stderr)
+                pass
             processes.append(proc)
 
             proc.wait()
@@ -282,19 +285,25 @@ def annotate(sample, testmode):
             arg.whitespace_split = True
 
         with open(sample.name + ".hg19_multianno.vcf") as annotated:
-            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE)
-            proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
-            proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
-            proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
+            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
+            proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
+            proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
+            proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
 
             proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
                                                shell=False, stdin=proc_4.stdout,
-                                               stdout=subprocess.PIPE)
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
-                                      stdout=subprocess.PIPE)
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # Proc 6 takes in a table
-            proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
-            proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
+            proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
+            proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
             # logdata(proc_7.stderr)
             with open(sample.name + ".annotated.table", "w+") as table:
                 table.write(proc_7.communicate()[0])
@@ -368,8 +377,11 @@ def calc_coverage(sample):
 
 def create_excel_table(sample):
     filters = TruesightOneFilters(total_samples, sample.table_files)
+    postprocess = TruesightOnePostprocess(sample.table_files)
+    formats = TruesightOneFormats(sample.table_files)
+
     if sample.annotated:
-        create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files)
+        create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files, postprocess, formats)
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -386,8 +398,9 @@ def getGeneOrder(samples, args):
                 rows[prefix] = ([pan.strip().upper() for pan in panels.split(",")],
                                 [g.strip().upper() for g in genes.split(",")])
         if len(rows) > len(samples):
-            sys.stderr("WARNING: some samples represented in the --panels file "
-                       "have no matching samples in the batch. These will be ignored.")
+            sys.stderr.write("WARNING: some samples represented in the --panels file "
+                             "have no matching samples in the batch. These will be ignored.\n")
+            pass
         for sample in samples:
             if sample.name in rows.iterkeys():
                 print("{0} {1}".format(sample.name, rows[sample.name]))
@@ -477,7 +490,7 @@ def main(args):
     noChoice = ['no', 'n']
 
     # Will skip loading the panels from external (boolean) or local data
-    if not args.update or not args.legacy:
+    if not args.update and not args.legacy:
         handler.get_all_panels(False)  # Get local data
         combinedpanels = CombinedPanels(handler)
 
@@ -511,7 +524,7 @@ def main(args):
                           " Do you wish to continue {0} or load from local data {1}: "
                           .format(yesChoice, noChoice)).lower()
         if input in yesChoice:
-            handler.write_version_one_panels()
+            handler.write_version_one_panels(True)
         elif input in noChoice:
             print("Loading and writing panel tables instead...")
             combinedpanels.write_table()

@@ -21,7 +21,7 @@ def create_gene_dict(lines):
                 val = value[:-1]
             else:
                 val = "no_annotation"
-            v = val.replace(" ", "_").replace(";", "\\")
+            v = val.replace(" ", "_").replace(";", "|")
             if key in d:
                 d[key].append(v)
             else:

@@ -26,7 +26,7 @@ class JsonHandler(JsonHandlerBase):
         return len(self.panels) > 0
 
     def get_genes_per_panel(self, panel):
-        q, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/get_panel/" + panel.id)
+        q, data = self.query("https://panelapp.genomicsengland.co.uk/WebServices/get_panel/" + panel.id)
         print("Downloaded {0} genes for panel '{1}'".format(len(data['result']['Genes']), panel.name))
         return q, data
 
@@ -99,7 +99,7 @@ class JsonHandler(JsonHandlerBase):
     def get_all_panels(self, external=True):
         update_index = False
         if external:
-            json_response, data = self.query("https://panelapp.extge.co.uk/crowdsourcing/WebServices/list_panels",
+            json_response, data = self.query("https://panelapp.genomicsengland.co.uk/WebServices/list_panels",
                                              [{'format', 'json'}])
             print("Found {0} panels from PanelApp API.".format(len(data['result'])))
             local_panels = file_utility.find_filetype(self.json_dir, ".json")
@@ -148,8 +148,8 @@ class JsonHandler(JsonHandlerBase):
             self.load_panels(self.json_dir, self.progressbar)
         return self.panels
 
-    def write_version_one_panels(self):
-        if not self.loaded:
+    def write_version_one_panels(self, update=False):
+        if not self.loaded or update:
             self.get_all_panels(True)
         # Selecting and sorting for tables above version 1.0, ordered by diseasegroup and subgroup
         currentlist = [p for p in self.panels if p.version >= Version("1.0")]
