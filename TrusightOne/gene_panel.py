@@ -105,6 +105,8 @@ class CombinedPanels(dict):
         if len(handler.panels) > 0:
             unknown_panel = GenePanel({'Name': 'ALL', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
                                        'DiseaseSubGroup': 'None', 'CurrentVersion': '1.0'})
+            if len(gene.hgnc_genes) == 0:
+                gene.load_hgnc_genes(handler.config.hgncPath)
             if len(gene.tso_genes) == 0:
                 gene.load_tso_genes(handler.config.tsoGenes)
             unknown_panel.genes = gene.tso_genes

@@ -6,6 +6,7 @@ from distutils.version import LooseVersion as Version
 from conda._vendor.progressbar import ProgressBar
 
 import TrusightOne.gene_panel
+import gene
 from TrusightOne.gene_panel import GenePanel
 from pipeline_utility import file_utility
 # TODO: Currently presumes data is static and files will not go missing. Check for validity of JSONs
@@ -97,6 +98,10 @@ class JsonHandler(JsonHandlerBase):
             self.pbar = None
 
     def get_all_panels(self, external=True):
+        if len(gene.hgnc_genes) == 0:
+            gene.load_hgnc_genes(self.config.hgncPath)
+        if len(gene.tso_genes) == 0:
+            gene.load_tso_genes(self.config.tsoGenes)
         update_index = False
         if external:
             json_response, data = self.query("https://panelapp.genomicsengland.co.uk/WebServices/list_panels",

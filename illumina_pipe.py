@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import sys
 import time
+import traceback
 from tempfile import NamedTemporaryFile
 
 import TrusightOne.gene
@@ -174,7 +175,7 @@ def genderCheck(samples, test):
     out = project + ".merged.vcf"
     vcflist = ""
     for sample in samples:
-        vcflist = vcflist + "--variant:{0} {1}".format(sample.name, sample.vcflocation)
+        vcflist = vcflist + "--variant:{0} {1}\\".format(sample.name, sample.vcflocation)
         # print vcflist
     if not test:
         args = shlex.split('java -Xmx10g -jar {0} '
@@ -310,7 +311,7 @@ def annotate(sample, testmode):
                 sample.table_files.append(os.path.abspath(table.name))
             for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
                 processes.append(proc)
-                logdata(proc.stderr)
+                # logdata(proc.stderr)
         # TODO: Switch to multiprocessing?
         # jobs = multiprocessing.Pool(1)
         # annotator = multiprocessing.Process()
@@ -382,13 +383,14 @@ def create_excel_table(sample):
 
     if sample.annotated:
         create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files, postprocess, formats)
+        sample.finished = True
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
 
 
 def getGeneOrder(samples, args):
-    print("Getting the order from {0}...".format(args.panels.name))
+    print("Getting orders from {0}...".format(args.panels.name))
     rows = {}
     try:
         for line in args.panels.readlines():
@@ -399,8 +401,11 @@ def getGeneOrder(samples, args):
                                 [g.strip().upper() for g in genes.split(",")])
         if len(rows) > len(samples):
             sys.stderr.write("WARNING: some samples represented in the --panels file "
-                             "have no matching samples in the batch. These will be ignored.\n")
+                             "have no matching samples in the batch. "
+                             "The following will be ignored: {0}\n"
+                             .format([pref for pref in rows.iterkeys() if pref not in [s.name for s in samples]]))
             pass
+        print("-" * 90)
         for sample in samples:
             if sample.name in rows.iterkeys():
                 print("{0} {1}".format(sample.name, rows[sample.name]))
@@ -419,6 +424,7 @@ def getGeneOrder(samples, args):
                 sys.stderr.write("WARNING: sample ({0}) represented in the batch "
                                  "has no selected panels or genes in the --panels file. "
                                  "This sample will be annotated with 'ALL'.\n".format(sample.name))
+        print("-" * 90)
     except IOError as e:
         sys.stderr.write("PIPELINE ERROR: {0}\nDoes your batch contain the panels.txt file?\n"
                          "Creating a new panel.txt file in the working directory {1}.\n".
@@ -462,24 +468,36 @@ def run_samples(args, sample_list):
             create_excel_table(sample)
 
             if not args.keep and sample.annotated:
-                os.remove(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-                os.remove(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-                os.remove(os.path.join(workingDir, sample.name + ".annotated.table"))
-                os.remove(os.path.join(workingDir, sample.name + ".avinput"))
-                os.remove(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-                os.remove(os.path.join(workingDir, sample.name + "_coverage",
+                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                        sample.name + ".sample_cumulative_coverage_counts"))
-                os.remove(os.path.join(workingDir, sample.name + "_coverage",
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                        sample.name + ".sample_cumulative_coverage_proportions"))
-                os.remove(os.path.join(workingDir, sample.name + "_coverage",
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                        sample.name + ".sample_interval_statistics"))
-                os.remove(os.path.join(workingDir, sample.name + "_coverage",
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                        sample.name + ".sample_statistics"))
 
-            print("Finished sample {0}".format(sample.name))
+                for trashfile in sample.trash:
+                    try:
+                        os.remove(trashfile)
+                    # The file might've been already deleted or did not exist in the first place.
+                    except(OSError) as oserror:
+                        sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
+
+            if sample.finished:
+                print("Finished sample {0}".format(sample.name))
+            else:
+                print("Could not finish sample {0}".format(sample.name))
+        except Exception as error:
+            sys.stderr.write("PIPELINE ERROR: {0}\nTrace: ".format(sample))
+            traceback.print_exc(file=sys.stderr)
+            raise error
             # TODO: Run conifer
-        except Exception:
-            pass  # continue running for other samples
 
 
 def main(args):

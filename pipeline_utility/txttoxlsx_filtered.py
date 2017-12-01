@@ -35,6 +35,7 @@ Usage: python TSO_txttoxlsx.py input.txt input2.txt ... inputn.txt output.xlsx
 
 import re
 import sys
+import traceback
 
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name
@@ -199,7 +200,9 @@ def post_process(cell, ruleset):
                         raise ValueError("The filter {0} had an empty formula in the excel_notation argument!"
                                          .format(ruleset))
             except(SyntaxError) as error:
-                sys.stderr.write("Your filter contains a syntax error in the python or excel notation!")
+                sys.stderr.write("Your filter contains a syntax error in the python or excel notation!\n"
+                                 "Filter:{0}".format(ruleset))
+                traceback.print_exc(file=sys.stderr)
                 raise error
     return cell
 
@@ -291,14 +294,15 @@ def create_excel(name, filterset, files, postprocess_list=None, formats_list=Non
                     row_filtered = False
 
                 print("Total rows: {0}\nFiltered rows: {1}".format(table_length, filtered))
-                print("Done!")
                 # print "Filters active {0}.\n{1}".format(len(filters[i]),
                 #                                       '\n'.join(str(v) for v in filters[i].itervalues()))
     except (Exception) as error:
         sys.stderr.write("Error in creating excel file {0}: {1}\n".format(wbook.filename, error.message))
-        raise
+        raise error
     finally:
+        print ("Closing excel file...")
         wbook.close()
+        print ("Finished!")
 
 
 if __name__ == "__main__":

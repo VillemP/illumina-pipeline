@@ -14,10 +14,7 @@ class Ruleset:
         self.excel_notation = excel_notation
 
         if filtertype == FILTER_COLUMN_LIST:
-            if type(excel_notation) is not list:
-                self.excel_notation = [excel_notation]  # convert to list
-            else:
-                self.excel_notation = excel_notation
+            assert type(excel_notation) is list
 
         # The filter type is used to determine the XlsxWriter
         self.filter_type = filtertype

@@ -2,6 +2,7 @@ import pipeline_utility.ruleset as filt
 from pipeline_utility.ruleset import Ruleset
 
 
+# TODO: Switch eval(str) with lambda arguments
 class TruesightOneFilters(list):
     def __init__(self, ac_5_percent, sheets):
         super(TruesightOneFilters, self).__init__([dict([])])
@@ -44,15 +45,16 @@ class TruesightOnePostprocess(list):
         for index, sheet in enumerate(sheets):
             self.append(dict())
         # Prettify the column to be more human-readable.
-        self[0]['P'] = Ruleset('P', '"{0}".replace(",", ", ")', None, filt.EDITVALUE)
-        self[0]['AN'] = Ruleset('AN', '"{0}".replace("_", " ")', None, filt.EDITVALUE)
-        self[0]['AP'] = Ruleset('AP', '"{0}".replace("_", " ").replace(",", ", ")', None, filt.EDITVALUE)
+        # Triple-escaped quotes ''' ''' ensure all characters in the string are escaped
+        self[0]['P'] = Ruleset('P', '\'\'\'{0}\'\'\'.replace(",", ", ")', None, filt.EDITVALUE)
+        self[0]['AN'] = Ruleset('AN', '\'\'\'{0}\'\'\'.replace("_", " ")', None, filt.EDITVALUE)
+        self[0]['AP'] = Ruleset('AP', '\'\'\'{0}\'\'\'.replace("_", " ").replace(",", ", ")', None, filt.EDITVALUE)
         # Convert rs-values into links, does not check if links are valid. Empty values are skipped.
+        self[0]['C'] = Ruleset('C', None, '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/snp/{0}", "{1}")\'', filt.FORMULA)
         # Regex to get the number only. This can be commented out to use the old-style dbSNP page
         # self[0]['C'] = Ruleset('C', '"".join(re.findall("\\d+", "{0}"))',
         #                      '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/projects/SNP/snp_ref.cgi?rs={0}", "{1}")\'',
         #                       filt.FORMULA)
-        self[0]['C'] = Ruleset('C', None, '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/snp/{0}", "{1}")\'', filt.FORMULA)
 
 
 class TruesightOneFormats(list):

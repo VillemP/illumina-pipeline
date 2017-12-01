@@ -10,22 +10,22 @@ from pipeline_utility.baseconfig import BaseConfig
 from pipeline_utility.jsonhandlerbase import JsonHandlerBase
 
 
-class HPOURLopener(urllib.FancyURLopener):
-    version = "Chrome/56.0.2924.87"
-
-
 class AnnotationDbCfg(BaseConfig):
     yaml_tag = u"!AnnotationDbCfg"
 
     def __init__(self, filepath, omim_api_key="", omim_host="api.omim.org",
                  hpo_host="http://compbio.charite.de/jenkins/job/hpo.annotations.monthly/lastStableBuild/api/python",
-                 directory=""):
+                 directory="", hgncPath="~/hgnc_symbols.txt", hgnc_api="https://rest.genenames.org/fetch/",
+                 hgnc_url="https://www.genenames.org/cgi-bin/"):
         super(AnnotationDbCfg, self).__init__(filepath)
         self.omim_api_key = omim_api_key
         self.omim_host = omim_host
         self.hpo_host = hpo_host
         self.directory = directory
         self.hpo_jenkins = None
+        self.hgncPath = hgncPath
+        self.hgnc_api = hgnc_api
+        self.hgnc_url = hgnc_url
 
 
 class AnnotationHandler(JsonHandlerBase):
@@ -75,6 +75,20 @@ class AnnotationHandler(JsonHandlerBase):
                                                os.path.join(self.config.directory, fileName),
                                                self.show_progress)
         return filename
+
+    def downloadHGNCsymbols(self):
+        args = "download?col=gd_app_sym&col=gd_prev_sym&" \
+               "col=gd_aliases&status=Approved&status_opt=2&" \
+               "where=&order_by=gd_app_sym_sort&format=text&" \
+               "limit=&hgnc_dbtag=on&submit=submit"
+
+        response = urllib.urlopen(urlparse.urljoin(self.config.hgnc_url, args))
+
+        with open(self.config.hgncPath, "wb+") as hgnc:
+            for i, line in enumerate(response.readlines()):
+                # Skip the header
+                if i != 0:
+                    hgnc.write(line)
 
     def splitOMIMterms(self, infile, outfile):
         with open(infile) as f:
@@ -138,6 +152,8 @@ def _update_db(annotationFolder, externalFilename, outfile, downloadedFiles, spl
             print("New {0} file contains {1} lines for {2} unique gene symbols.\n"
                   "The old file is saved as a backup in {3} and contained {4} lines for {5} unique genes.".
                   format(newfile, newlen, newgenes, oldfile, oldlen, oldgenes))
+    else:
+        print("ERROR: The update could not be started for {0}".format(outfile))
 
 
 def update_omim(annotationFolder, test):
@@ -160,6 +176,13 @@ def update_hpo(annotationFolder, test):
                handler.splitHPOterms)
 
 
+def updated_hgnc():
+    print("Downloading HGNC symbols to {0}".format(handler.config.hgncPath))
+    handler.downloadHGNCsymbols()
+    print("Finished!")
+
+
 def update_all(annotationFolder, test):
+    updated_hgnc()
     update_hpo(annotationFolder, test)
     update_omim(annotationFolder, test)

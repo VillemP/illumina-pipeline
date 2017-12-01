@@ -15,6 +15,7 @@ class Sample(object):
             self.genes_tempfile = None
             self.panels = list()
             self.genes = list()
+            self.trash = list()
             self.targetfile = None
             self.table_files = list()
             assert os.path.exists(self.vcflocation)
