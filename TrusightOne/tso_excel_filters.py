@@ -44,7 +44,9 @@ class TruesightOnePostprocess(list):
         for index, sheet in enumerate(sheets):
             self.append(dict())
         # Prettify the column to be more human-readable.
+        self[0]['P'] = Ruleset('P', '"{0}".replace(",", ", ")', None, filt.EDITVALUE)
         self[0]['AN'] = Ruleset('AN', '"{0}".replace("_", " ")', None, filt.EDITVALUE)
+        self[0]['AP'] = Ruleset('AP', '"{0}".replace("_", " ").replace(",", ", ")', None, filt.EDITVALUE)
         # Convert rs-values into links, does not check if links are valid. Empty values are skipped.
         # Regex to get the number only. This can be commented out to use the old-style dbSNP page
         # self[0]['C'] = Ruleset('C', '"".join(re.findall("\\d+", "{0}"))',

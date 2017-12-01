@@ -35,7 +35,6 @@ Usage: python TSO_txttoxlsx.py input.txt input2.txt ... inputn.txt output.xlsx
 
 import re
 import sys
-import traceback
 
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name
@@ -103,6 +102,7 @@ def num(s):
 
 
 def add_filters(sheet, filters):
+    # TODO: Check for AttributeError in Rulesets?
     for key, filter in filters[sheet.index].items():
         assert key == filter.column
         if filter.filter_type == filt.FILTER_COLUMN:
@@ -295,8 +295,7 @@ def create_excel(name, filterset, files, postprocess_list=None, formats_list=Non
                 # print "Filters active {0}.\n{1}".format(len(filters[i]),
                 #                                       '\n'.join(str(v) for v in filters[i].itervalues()))
     except (Exception) as error:
-        sys.stderr.write("Error in creating excel file {0}".format(wbook.filename))
-        sys.stderr.write("Unexpected error: {0}".format(traceback.print_exc(sys.stderr)))
+        sys.stderr.write("Error in creating excel file {0}: {1}\n".format(wbook.filename, error.message))
         raise
     finally:
         wbook.close()
