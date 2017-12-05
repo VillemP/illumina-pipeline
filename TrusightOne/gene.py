@@ -10,18 +10,28 @@ synonym_hgnc = {}
 
 
 def load_hgnc_genes(hgncPath):
+    """
+    This function loads the HGNC genes from local data into a dictionary, with unique symbols corresponding to
+    1) lists of symbol synonyms (hgnc_genes dict)
+    2) unique synonyms to their HGNC symbol (synonym_hgnc dict)
+    :param hgncPath: Direct path to the HGNC containing text file (which can be created with the -update tool)
+    """
     try:
         with open(hgncPath) as hgnc:
             data = hgnc.readlines()
             for line in data:
+                clean_list = []
                 symbols = line.split("\t")
                 # Match every HGNC symbol to a list of synonyms
-                hgnc_genes[symbols[0]] = symbols[1].strip().split(',') + symbols[2].strip().split(',')
+                synonym_list = symbols[1].strip().split(',') + symbols[2].strip().split(',')
+                for synonym in synonym_list:
+                    if synonym != "" and synonym is not None:
+                        clean_list.append(synonym.strip())
+                hgnc_genes[symbols[0]] = clean_list
                 # Match every synonym to it's HGNC symbol to enable quicker searching
-        for keypair in hgnc_genes.iteritems():
-            for symbol in keypair[1]:  # values
-                if symbol is not None and symbol != "":
-                    synonym_hgnc[symbol] = keypair[0]  # Match every synonym to its HGNC approved symbol
+        for key, value in hgnc_genes.items():
+            for symbol in value:  # values
+                synonym_hgnc[symbol] = key  # Match every synonym to its HGNC approved symbol
 
     except IOError as error:
         sys.stderr.write("PIPELINE ERROR: {0}\n"
@@ -38,10 +48,10 @@ def load_tso_genes(tsoPath):
             data = tso.readlines()
             for line in data:
                 # print data[i].rstrip().split("\t")
-                gene_cov = line.rstrip().split("\t")
+                gene_symbol, coverage = line.rstrip().split("\t")
                 gene = Gene(panel=None, json=None, on_TSO=True)
-                gene._name = gene_cov[0]
-                gene.coverage = gene_cov[1]
+                gene._name = gene_symbol
+                gene.coverage = coverage
                 tso_genes.append(gene)
     except IOError as error:
         sys.stderr.write("PIPELINE ERROR: {0}\n"
@@ -86,6 +96,7 @@ def synonyms_to_hgnc(symbol):
     # for synonyms in hgnc_genes.values():
     #   if symbol in synonyms:
     #        return synonyms
+
     return synonym_hgnc.get(symbol, None)
     # return None
 
@@ -99,29 +110,36 @@ def find_synonyms(symbol):
     """
     result = ()
     result = hgnc_genes.get(symbol, None)
+
     if result is None:
         # Perhaps a synonym was used
         hgnc = synonyms_to_hgnc(symbol)
         if hgnc is not None:
-            result = hgnc_genes[hgnc][:]
-            result.append(hgnc)
+            result = hgnc
     return result
 
 
 def find_hgnc(gene):
+    # type: (Gene) -> str
     """
     This function returns the correct HGNC declared gene symbol regardless if
     the gene was created with a synonymous symbol. If the symbol is not a HGNC Approved Name, HGNC previous symbol or
     HGNC synonym --> return None
-    :param symbol: Symbol the Gene object was created with
+    :param symbol: string symbol the Gene object was created with
     :return:
     """
+    # If the correct HGNC term was found in an earlier call, start using it from here on
+    if gene._hgnc is not None:
+        return gene._hgnc
     symbol = gene._name
     if len(hgnc_genes) > 0:
-        if hgnc_genes.has_key(symbol):
+        if symbol in hgnc_genes:
+            gene._hgnc = symbol
             return symbol
         else:
-            return synonyms_to_hgnc(symbol)
+            result = synonyms_to_hgnc(symbol)
+            gene._hgnc = result
+            return result
     else:
         load_hgnc_genes(gene.panel.config.hgncPath)
 
@@ -142,6 +160,7 @@ class Gene(object):
             self.phenotypes = json['Phenotypes']
             self.raw_json = json
             self.coverage = -1.0
+            self._hgnc = None
         else:
             self.ensemblegeneids = None
             self._name = None
@@ -153,8 +172,11 @@ class Gene(object):
             self.phenotypes = None
             self.raw_json = None
             self.coverage = -1.0
+            self._hgnc = None
+        # This is used for creating Genes from JSONs
         if on_TSO is None:
             self.on_TSO = get_tso_status(self)
+        # Genes from local text file
         else:
             self.on_TSO = on_TSO
             #self.synonyms = find_synonyms(self._name)
@@ -168,8 +190,9 @@ class Gene(object):
         # Every time the gene name is used, the name property will either return the HGNC Approved name
         # or throw an AssertionError, see also the find_synonyms() docstring.
         result = find_hgnc(self)
-        assert result is not None, "Tried to use a gene object with a nonexistant symbol: {0}" \
-            .format(self._name)
+        if result is None:
+            # sys.stderr.write("Tried to use a gene object with a HGNC-nonexistant symbol: {0}\n".format(self._name))
+            return self._name
         return result
 
     def __str__(self):

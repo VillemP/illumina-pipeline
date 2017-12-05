@@ -26,7 +26,8 @@ class Sample(object):
             raise IOError("VCF and BAM files for sample {0} not found!".format(name))
 
     def __str__(self):
-        return "{0} Annotated:{1} Finished:{2}".format(self.name, str(self.annotated), str(self.finished))
+        return "{0} Annotated:{1} Finished:{2} Files {3}".format(self.name, str(self.annotated), str(self.finished),
+                                                                 str(self.table_files))
 
     @property
     def final_order(self):

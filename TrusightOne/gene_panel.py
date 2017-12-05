@@ -1,4 +1,3 @@
-import csv
 import itertools
 import os
 import sys
@@ -6,7 +5,9 @@ from distutils.version import LooseVersion
 
 import gene
 from gene import Gene
+from pipeline_utility.txttoxlsx_filtered import create_excel
 
+genesdict = {}
 
 class GenePanel(object):
     def __init__(self, panel_json, config=None):
@@ -25,6 +26,8 @@ class GenePanel(object):
     def add_genes(self, unpacked_json):
         self.genes_json = unpacked_json
         for gene in self.genes_json['result']['Genes']:
+            # if str(gene['name']) in genesdict:
+            # self.genes.append()
             g = Gene(self, gene)
             self.genes.append(g)
 
@@ -182,12 +185,19 @@ class CombinedPanels(dict):
 
             for panel in panels:
                 genes.extend([g.name for g in panel.tso_genes if g.name not in genes])
-            line = [key, len(genes)]
+            # In order for the izip to work properly, there can't be any spaces
+
+            if type(key) is tuple:
+                name = ",".join(str(symbol).replace(" ", "_") for symbol in key)
+            else:
+                name = key
+            line = [name, len(genes)]
             line.extend(genes)
             lines.append(line)
+        #
         lines.sort(key=lambda col: col[0])
-        csv = itertools.izip_longest(*lines)
-        return csv
+        table = itertools.izip_longest(*lines, fillvalue="")
+        return table
 
     def write_table(self, out="combined_panels_summary.txt"):
         if not self.handler.loaded:
@@ -195,14 +205,18 @@ class CombinedPanels(dict):
         print("Writing the panel combinations to {0}".format(os.path.join(self.handler.config.json_dir, out)))
         with open(os.path.join(self.handler.config.json_dir, out), "w+") as f:
             for panelcombo in self.iteritems():
-                # f.write(panel.as_table + '\n')
                 for panel in panelcombo[1]:
                     f.write(panel.as_table + '\t{}'.format(panelcombo[0]) + '\n')
         print("Writing the combined panels gene table to {0}".format(self.handler.config.gene_table))
         with open(self.handler.config.gene_table, "wb+") as f:
-            writer = csv.writer(f)
-            for row in self.table():
-                writer.writerow(row)
+            tbl = self.table()
+            print type(tbl)
+            for i, row in enumerate(self.table()):
+                if i == 0:
+                    f.write("\t".join([str(tupl) for tupl in row]) + "\n")
+                else:
+                    f.write("\t".join([str(col) for col in row]) + "\n")
+        create_excel(self.handler.config.gene_table + ".xlsx", files=[self.handler.config.gene_table])
 
 
 def match_order_to_panels(key, combinedpanels, handler):

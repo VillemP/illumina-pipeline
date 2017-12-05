@@ -6,7 +6,7 @@ from pipeline_utility.ruleset import Ruleset
 class TruesightOneFilters(list):
     def __init__(self, ac_5_percent, sheets):
         super(TruesightOneFilters, self).__init__([dict([])])
-        self._ac_5_percent = ac_5_percent
+        self._ac_5_percent = int(round(ac_5_percent * 0.1))
 
         # Format is: filters[sheet.index]['COL']
         # Filter (COL, python logic ('.' is unfiltered automatically), excel logic, is it listtype (several filtered))

@@ -382,7 +382,7 @@ def create_excel_table(sample):
     formats = TruesightOneFormats(sample.table_files)
 
     if sample.annotated:
-        create_excel(".".join([sample.name, "xlsx"]), filters, sample.table_files, postprocess, formats)
+        create_excel(".".join([sample.name, "xlsx"]), sample.table_files, filters, postprocess, formats)
         sample.finished = True
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
@@ -431,18 +431,23 @@ def getGeneOrder(samples, args):
                          format(e.message, workingDir))
         if not os.path.exists(os.path.join(workingDir, "panels.txt")):
             with open(os.path.join(workingDir, "panels.txt"), "w+") as panelsfile:
+                panelsfile.write("#SAMPLE\tGENES (comma-seperated)\tPANELS (comma-seperated)")
                 for sample in samples:
                     print("\t".join((sample.name, "-", "-")))
                     panelsfile.write("\t".join((sample.name, "-", "-")))
         else:
-            sys.stderr.write("ABORTING: panels.txt file already exists.\n")
+            sys.stderr.write("ABORTING: panels.txt file already exists but might be corrupt.\n")
+            sys.exit(1)
 
 
 def run_samples(args, sample_list):
     if not handler.loaded:
         handler.get_all_panels(False)  # Get local data
 
+    finished_samples = []
+    unfinished_samples = []
     samples = list()
+
     for sample in sample_list:
         location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")[1]
         bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")[1]
@@ -491,13 +496,20 @@ def run_samples(args, sample_list):
 
             if sample.finished:
                 print("Finished sample {0}".format(sample.name))
+                finished_samples.append(sample)
             else:
-                print("Could not finish sample {0}".format(sample.name))
+                print("Could not finish sample {0}".format(sample))
+                unfinished_samples.append(sample)
+
         except Exception as error:
             sys.stderr.write("PIPELINE ERROR: {0}\nTrace: ".format(sample))
             traceback.print_exc(file=sys.stderr)
             raise error
-            # TODO: Run conifer
+        # TODO: Run conifer
+        print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+        if len(unfinished_samples) > 0:
+            for sample in unfinished_samples:
+                print("{0} is unfinished. Check for errors.".format(sample))
 
 
 def main(args):

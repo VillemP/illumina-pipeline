@@ -44,13 +44,20 @@ class MiniseqPostprocess(list):
         # Accomodate the filters container to have room for each sheet
         for index, sheet in enumerate(sheets):
             self.append(dict())
+
         # Prettify the column to be more human-readable.
-        self[0]['AI'] = Ruleset('AI', '"{0}".replace("_", " ")', None, filt.EDITVALUE)
+        # Triple-escaped quotes ''' ''' ensure all characters in the string are escaped
+        self[0]['AI'] = Ruleset('AI', '\'\'\'{0}\'\'\'.replace("_", " ")', None,
+                                filt.EDITVALUE)  # Disease name from ANNO
+        self[0]['AM'] = Ruleset('AM', '\'\'\'{0}\'\'\'.replace("_", " ")', None, filt.EDITVALUE)  # Disease.name
+        self[0]['AO'] = Ruleset('AO', '\'\'\'{0}\'\'\'.replace("_", " ").replace(",", ", ")', None,
+                                filt.EDITVALUE)  # HPO
         # Convert rs-values into links, does not check if links are valid. Empty values are skipped.
-        # Regex to get the number only.
-        self[0]['C'] = Ruleset('C', '"".join(re.findall("\\d+", "{0}"))',
-                               '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/projects/SNP/snp_ref.cgi?rs={0}", "{1}")\'',
-                               filt.FORMULA)
+        self[0]['C'] = Ruleset('C', None, '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/snp/{0}", "{1}")\'', filt.FORMULA)
+        # Regex to get the number only. Old style dbSNP page
+        # self[0]['C'] = Ruleset('C', '"".join(re.findall("\\d+", "{0}"))',
+        #                       '\'=HYPERLINK("https://www.ncbi.nlm.nih.gov/projects/SNP/snp_ref.cgi?rs={0}", "{1}")\'',
+        #                       filt.FORMULA)
 
 
 class MiniseqFormats(list):

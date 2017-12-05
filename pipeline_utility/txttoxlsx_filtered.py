@@ -207,11 +207,13 @@ def post_process(cell, ruleset):
     return cell
 
 
-def create_excel(name, filterset, files, postprocess_list=None, formats_list=None):
+def create_excel(name, files, filterset=None, postprocess_list=None, formats_list=None):
     if postprocess_list is None:
         postprocess_list = [dict()]
     if formats_list == None:
         formats_list = [dict()]
+    if filterset is None:
+        filterset = [dict([])]
     formats = dict()
 
     reload(sys)
@@ -297,7 +299,8 @@ def create_excel(name, filterset, files, postprocess_list=None, formats_list=Non
                 # print "Filters active {0}.\n{1}".format(len(filters[i]),
                 #                                       '\n'.join(str(v) for v in filters[i].itervalues()))
     except (Exception) as error:
-        sys.stderr.write("Error in creating excel file {0}: {1}\n".format(wbook.filename, error.message))
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.write("Error in creating excel file {0}: {1}\n".format(wbook.filename, error))
         raise error
     finally:
         print ("Closing excel file...")
@@ -321,5 +324,5 @@ if __name__ == "__main__":
     filters = [dict([])]
     post = TruesightOnePostprocess(sys.argv[1:-1])
     formats = TruesightOneFormats(sys.argv[1:-1])
-    create_excel(sys.argv[-1], filters, sys.argv[1:-1], post, formats)
+    create_excel(sys.argv[-1], sys.argv[1:-1], filters, post, formats)
     print("Done with excel file {}".format(sys.argv[-1]))

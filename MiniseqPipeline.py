@@ -1,7 +1,6 @@
 import argparse
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 
@@ -208,7 +207,8 @@ def annotate(sample, testmode):
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
                          '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate clinvar_20170130 '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
+                         'CLNDSDB CLNDSDBID '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
     if testmode:
@@ -242,7 +242,7 @@ def annotate(sample, testmode):
     # jobs = multiprocessing.Pool(1)
     # annotator = multiprocessing.Process()
 
-    if proc_6.returncode == 0:
+    if proc_7.returncode == 0:
         sample.annotated = True
         print("Finished annotating sample {0}".format(sample.name))
         print(sample)
@@ -295,7 +295,7 @@ def calc_coverage(sample):
     sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                            sample.name + '.requested.sample_summary')))
     sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                           sample.name + '.requested.sample_summary')))
+                                                           sample.name + '.requested.sample_gene_summary')))
 
 
 def create_excel_table(sample):
@@ -303,7 +303,7 @@ def create_excel_table(sample):
     post = MiniseqPostprocess(sample.table_files)
     formats = MiniseqFormats(sample.table_files)
     if sample.annotated:
-        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), filters, sample.table_files, post, formats)
+        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -311,6 +311,8 @@ def create_excel_table(sample):
 
 def run_samples(args, sample_list):
     samples = list()
+    finished_samples = []
+    unfinished_samples = []
     for sample in sample_list:
         location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")[1]
         bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")[1]
@@ -328,24 +330,42 @@ def run_samples(args, sample_list):
         if not args.test:
             annotate(sample, args.test)
             calc_coverage(sample)
-        create_excel_table(sample)
-        if not args.keep:
-            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + ".annotated.table"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + ".avinput"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_cumulative_coverage_counts"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_cumulative_coverage_proportions"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_interval_statistics"))
-            shutil.rmtree(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_statistics"))
+            create_excel_table(sample)
+            if not args.keep and sample.annotated:
+                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                 sample.name + ".requested.sample_cumulative_coverage_counts"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                 sample.name + ".requested.sample_cumulative_coverage_proportions"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                 sample.name + ".requested.sample_interval_statistics"))
+                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                 sample.name + ".requested.sample_statistics"))
 
+                for trashfile in sample.trash:
+                    try:
+                        os.remove(trashfile)
+                    # The file might've been already deleted or did not exist in the first place.
+                    except(OSError) as oserror:
+                        sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror))
+                    finally:
+                        if sample.annotated:
+                            sample.finished = True
 
-        print("Finished sample {0}".format(sample.name))
+            if sample.finished:
+                print("Finished sample {0}".format(sample.name))
+                finished_samples.append(sample)
+            else:
+                print("Could not finish sample {0}".format(sample))
+                unfinished_samples.append(sample)
+    print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+    if len(unfinished_samples) > 0:
+        for sample in unfinished_samples:
+            print("{0} is unfinished. Check for errors.".format(sample))
 
 
 def main(args):
