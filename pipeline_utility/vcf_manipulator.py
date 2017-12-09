@@ -11,6 +11,7 @@ def load_annotation_file(annotation_file):
 def create_gene_dict(lines):
     d = {}
     for line in lines:
+        # Skip comment lines
         if not line.startswith('#'):
             try:
                 (key, value) = line.split("\t")
@@ -21,7 +22,7 @@ def create_gene_dict(lines):
                 val = value[:-1]
             else:
                 val = "no_annotation"
-            v = val.replace(" ", "_").replace(";", "|")
+            v = val.replace(" ", "_").replace(";", "|").strip()  # Escape newlines and replace illegal chars
             if key in d:
                 d[key].append(v)
             else:
@@ -41,7 +42,7 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
             if row[0:6] == "#CHROM":
                 # final header line, write our own header
                 headerline = "##INFO=<ID={0},Number=.,Type=String,Description=\"Custom gene-based annotation\">\n".format(
-                    annotation)
+                    annotation.strip())
                 output.write(headerline)
             output.write(row)
         else:
@@ -51,7 +52,7 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
             genelist = refgene[0].split('=')
             gene = genelist[1]
             if gene in gene_dict:
-                info.append(annotation + "=" + ",".join(gene_dict[gene]))
+                info.append(annotation + "=" + ",".join(gene_dict[gene]))  # escape any newlines
             else:
                 info.append(annotation + "=no_annotation")
             variant[7] = ';'.join(info)

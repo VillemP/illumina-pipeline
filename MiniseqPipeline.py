@@ -167,9 +167,16 @@ def annotate(sample, testmode):
         proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
         processes.append(proc)
 
+        with proc.stderr:
+            logdata(proc.stderr)
+        processes.append(proc)
+
         proc.wait()
         if proc.returncode == 0:
             sample.reduced_variants_vcf = outfile
+        else:
+            sample.error = True
+
 
         args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                            "-out {3} "
@@ -180,13 +187,13 @@ def annotate(sample, testmode):
                            "-nastring . "
                            "-otherinfo "
                            "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
+        if not sample.error:
+            proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+            with proc.stderr:
+                logdata(proc.stderr)
+            processes.append(proc)
 
-        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
-        with proc.stderr:
-            logdata(proc.stderr)
-        processes.append(proc)
-
-        proc.wait()
+            proc.wait()
 
     # annotator output file --> add custom and external gene name based
     disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
@@ -223,29 +230,34 @@ def annotate(sample, testmode):
     for arg in slx:
         arg.whitespace_split = True
 
-    with open(sample.name + ".hg19_multianno.vcf") as annotated:
-        proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE)
-        proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
-        proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
-        proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
-        proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_4.stdout, stdout=subprocess.PIPE)
-        # Proc 6 takes in a table
-        proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
-        proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
-        # with proc_7.stderr:
-        #    logdata(proc_7.stderr)
-        with open(sample.name + ".annotated.table", "w+") as table:
-            table.write(proc_7.communicate()[0])
-            sample.table_files.append(os.path.abspath(table.name))
+    if not sample.error:
+        with open(sample.name + ".hg19_multianno.vcf") as annotated:
+            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE)
+            proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
+            proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
+            proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
+            proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_4.stdout, stdout=subprocess.PIPE)
+            # Proc 6 takes in a table
+            proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE)
+            proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
+            # with proc_7.stderr:
+            #    logdata(proc_7.stderr)
+            with open(sample.name + ".annotated.table", "w+") as table:
+                table.write(proc_7.communicate()[0])
+                sample.table_files.append(os.path.abspath(table.name))
 
-    # TODO: Switch to multiprocessing?
-    # jobs = multiprocessing.Pool(1)
-    # annotator = multiprocessing.Process()
+        # TODO: Switch to multiprocessing?
+        # jobs = multiprocessing.Pool(1)
+        # annotator = multiprocessing.Process()
 
-    if proc_7.returncode == 0:
-        sample.annotated = True
-        print("Finished annotating sample {0}".format(sample.name))
-        print(sample)
+        if proc_7.returncode == 0:
+            sample.annotated = True
+            print("Finished annotating sample {0}".format(sample.name))
+            print(sample)
+    else:
+        # There was a problem with SelectVariants
+        sample.annotated = False
+
 
 
 def calc_coverage(sample):
@@ -325,12 +337,16 @@ def run_samples(args, sample_list):
                              "Do not include file endings!\n"
                              "After fixing the errors, rerun {1} --s {2}\n".
                              format(e.message, __file__, sample))
+    print("Found {0} samples:".format(len(samples)))
+    for sample in samples:
+        print(sample)
     update_database(samples, args.no_replace, args.test)
     for sample in samples:
         if not args.test:
             annotate(sample, args.test)
-            calc_coverage(sample)
-            create_excel_table(sample)
+            if not sample.error:
+                calc_coverage(sample)
+                create_excel_table(sample)
             if not args.keep and sample.annotated:
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
@@ -356,16 +372,19 @@ def run_samples(args, sample_list):
                         if sample.annotated:
                             sample.finished = True
 
-            if sample.finished:
+            if sample.finished and not sample.error:
                 print("Finished sample {0}".format(sample.name))
                 finished_samples.append(sample)
             else:
                 print("Could not finish sample {0}".format(sample))
                 unfinished_samples.append(sample)
-    print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+    print("Annotated {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
+    for sample in samples:
+        print(sample)
     if len(unfinished_samples) > 0:
         for sample in unfinished_samples:
-            print("{0} is unfinished. Check for errors.".format(sample))
+            print("{0} is unfinished. Check for errors. ".format(sample))
+        print("You can rerun with --samples {0} (strip the brackets)".format(s.name for s in unfinished_samples))
 
 
 def main(args):
