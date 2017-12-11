@@ -196,8 +196,11 @@ class CombinedPanels(dict):
             lines.append(line)
         #
         lines.sort(key=lambda col: col[0])
-        table = itertools.izip_longest(*lines, fillvalue="")
-        return table
+        table = itertools.izip_longest(*lines, fillvalue="None")
+        e = []
+        for l in table:
+            e.append(l)
+        return e
 
     def write_table(self, out="combined_panels_summary.txt"):
         if not self.handler.loaded:
@@ -211,11 +214,13 @@ class CombinedPanels(dict):
         with open(self.handler.config.gene_table, "wb+") as f:
             tbl = self.table()
             print type(tbl)
-            for i, row in enumerate(self.table()):
+            for i, row in enumerate(tbl):
                 if i == 0:
                     f.write("\t".join([str(tupl) for tupl in row]) + "\n")
                 else:
-                    f.write("\t".join([str(col) for col in row]) + "\n")
+                    f.write("\t".join([str(col) for col in row]).replace("None", ".") + "\n")
+        # Currently you have to use excel's find and replace function to get rid of the empty cel fillvalue
+        # TODO: Create a postprocess for every column (i--> can be a 1-indexed column, just need the total columns)
         create_excel(self.handler.config.gene_table + ".xlsx", files=[self.handler.config.gene_table])
 
 

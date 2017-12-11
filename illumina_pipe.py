@@ -390,6 +390,16 @@ def create_excel_table(sample):
 
 
 def getGeneOrder(samples, args):
+    """
+    This function opens the file from --panels (-p) and tries to compile a list of genes for every sample.
+    Each variant corresponds to a gene (added by the annotator) regardless if it is an exonic, intronic,
+    splicing or some other variant. The variants that match the gene within the GeneOrder
+    have a GeneReq column annotated corresponding to the order. This enables a final filtering of variants that match
+    the ordered genes (i.e. if only one Panel or one Gene is ordered, the final table will automatically be filtered to
+    show variants matching genes from this order)
+    :param samples: Samples to match to the order (indexed by sample_name)
+    :param args: args the annotation command was started with
+    """
     print("Getting orders from {0}...".format(args.panels.name))
     rows = {}
     try:
@@ -506,10 +516,12 @@ def run_samples(args, sample_list):
             traceback.print_exc(file=sys.stderr)
             raise error
         # TODO: Run conifer
+        # Currently is printed after every sample but it could be lifted out of the loop
         print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
         if len(unfinished_samples) > 0:
             for sample in unfinished_samples:
                 print("{0} is unfinished. Check for errors.".format(sample))
+            print("You can rerun with --samples {0} (strip the brackets)".format(s.name for s in unfinished_samples))
 
 
 def main(args):
