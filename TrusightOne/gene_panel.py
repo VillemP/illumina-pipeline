@@ -107,7 +107,7 @@ class CombinedPanels(dict):
         self.handler = handler
         if len(handler.panels) > 0:
             unknown_panel = GenePanel({'Name': 'ALL', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
-                                       'DiseaseSubGroup': 'None', 'CurrentVersion': '1.0'})
+                                       'DiseaseSubGroup': 'None', 'CurrentVersion': '1.2'})
             if len(gene.hgnc_genes) == 0:
                 gene.load_hgnc_genes(handler.config.hgncPath)
             if len(gene.tso_genes) == 0:
@@ -226,8 +226,11 @@ class CombinedPanels(dict):
 
 def match_order_to_panels(key, combinedpanels, handler):
     try:
-        panel = combinedpanels[key]
-        return panel
+        if key != "":
+            panel = combinedpanels[key]
+            return panel
+        else:
+            IndexError("Empty key.")
     except IndexError:
         # This key didn't yield a combined panel result, perhaps it is not a custom compiled panel but a single panel
         pass

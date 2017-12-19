@@ -222,17 +222,19 @@ def annotate(sample, testmode):
         if not testmode:
             sample.reduced_variants_vcf = sample.vcflocation
 
-            args = shlex.split("perl {0} {1} {2} -buildver hg19 "
-                               "-out {3} "
+            args = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
+                               '-out "{3}" '
                                "-remove -protocol "
                                "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
                                "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
                                "-operation g,f,f,f,f,f,f "
                                "-nastring . "
                                "-otherinfo "
-                               "-vcfinput".format(config.annotator, sample.reduced_variants_vcf, config.annotation_db,
+                               "-vcfinput".format(config.annotator, sample.reduced_variants_vcf.replace(" ", "\\ "),
+                                                  config.annotation_db,
                                                   sample.name))
 
+            print(args)
             proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
             with proc.stderr:
                 logdata(proc.stderr)
@@ -285,41 +287,45 @@ def annotate(sample, testmode):
         for arg in slx:
             arg.whitespace_split = True
 
-        with open(sample.name + ".hg19_multianno.vcf") as annotated:
-            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
+        try:
+            with open(sample.name + ".hg19_multianno.vcf") as annotated:
+                proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
+                proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
+                proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
+                proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
 
-            proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
-                                               shell=False, stdin=proc_4.stdout,
-                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # Proc 6 takes in a table
-            proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            # logdata(proc_7.stderr)
-            with open(sample.name + ".annotated.table", "w+") as table:
-                table.write(proc_7.communicate()[0])
-                sample.table_files.append(os.path.abspath(table.name))
-            for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
-                processes.append(proc)
-                # logdata(proc.stderr)
-        # TODO: Switch to multiprocessing?
-        # jobs = multiprocessing.Pool(1)
-        # annotator = multiprocessing.Process()
-        proc_7.wait()
-        if proc_7.returncode == 0:
-            sample.annotated = True
-            print("Finished annotating sample {0}".format(sample.name))
-            print(sample)
+                proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
+                                                   shell=False, stdin=proc_4.stdout,
+                                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                # Proc 6 takes in a table
+                proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
+                proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
+                # logdata(proc_7.stderr)
+                with open(sample.name + ".annotated.table", "w+") as table:
+                    table.write(proc_7.communicate()[0])
+                    sample.table_files.append(os.path.abspath(table.name))
+                for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
+                    processes.append(proc)
+                    # logdata(proc.stderr)
+            # TODO: Switch to multiprocessing?
+            # jobs = multiprocessing.Pool(1)
+            # annotator = multiprocessing.Process()
+            proc_7.wait()
+            if proc_7.returncode == 0:
+                sample.annotated = True
+                print("Finished annotating sample {0}".format(sample.name))
+                print(sample)
+        except IOError:
+            print("Could not start custom annotations due to {0} not finishing for {1}.".format(config.annotator,
+                                                                                                sample.name))
 
 
 def calc_coverage(sample):
@@ -516,12 +522,12 @@ def run_samples(args, sample_list):
             traceback.print_exc(file=sys.stderr)
             raise error
         # TODO: Run conifer
-        # Currently is printed after every sample but it could be lifted out of the loop
-        print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
-        if len(unfinished_samples) > 0:
-            for sample in unfinished_samples:
-                print("{0} is unfinished. Check for errors.".format(sample))
-            print("You can rerun with --samples {0} (strip the brackets)".format(s.name for s in unfinished_samples))
+    print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+    if len(unfinished_samples) > 0:
+        for sample in unfinished_samples:
+            print("{0} is unfinished. Check for errors.".format(sample))
+        print("-" * 40)
+        print("You can rerun with --samples {0}".format(" ".join([s.name for s in unfinished_samples])))
 
 
 def main(args):
@@ -561,15 +567,20 @@ def main(args):
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
         run_samples(args, args.samples)
     elif args.json:
+        while True:
+            try:
 
-        input = raw_input("WARNING: You are about to download the newest gene panels."
-                          " Do you wish to continue {0} or load from local data {1}: "
-                          .format(yesChoice, noChoice)).lower()
-        if input in yesChoice:
-            handler.write_version_one_panels(True)
-        elif input in noChoice:
-            print("Loading and writing panel tables instead...")
-            combinedpanels.write_table()
+                input = raw_input("WARNING: You are about to download the newest gene panels."
+                                  " Do you wish to continue {0} or load from local data and"
+                                  " write human-readable gene tables {1} [Ctrl-c to quit]: \n"
+                                  .format(yesChoice, noChoice)).lower()
+                if input in yesChoice:
+                    handler.write_version_one_panels(True)
+                elif input in noChoice:
+                    print("Loading and writing panel tables instead...")
+                    combinedpanels.write_table()
+            except KeyboardInterrupt:
+                print("Exiting")
     elif args.update:
         input = raw_input("WARNING: You are about to download the OMIM and HPO terms."
                           " The updated files will be downloaded to {0}.\n"
@@ -580,6 +591,44 @@ def main(args):
         elif input in noChoice:
             print("Quitting...")
 
+    elif args.gene:
+        try:
+            print("TSO PIPELINE GENE TOOL")
+            print("-" * 40)
+            print("Input the gene name or panel name/panel tag (MITO, etc)/panel id code (PanelApp) to find "
+                  "if it is covered TSO or return the genes from the panel that are covered on TSO.")
+            while True:
+                inp = raw_input("Input: \n")
+                synonyms = TrusightOne.gene.find_synonyms(inp)
+                if type(synonyms) is list:
+                    print("Synonyms for {0}: {1}".format(inp, synonyms))
+
+                result = TrusightOne.gene.find_gene(inp)
+                if result is not None:
+                    print("Gene is covered on TSO.\n"
+                          "Input: {0}\n"
+                          "HGNC symbol: {1}".format(inp, result))
+                else:
+                    # Is it a panel?
+                    result = TrusightOne.gene_panel.match_order_to_panels(inp, combinedpanels, handler)
+                    if type(result) is list:
+                        if len(result) > 0:
+                            print("Found a panel match for input '{0}'!".format(inp))
+                            for match in result:
+                                print(match)
+                                for gene in match.tso_genes:
+                                    print("{0}\t{1}".format(gene, gene.coverage))
+
+                        else:
+                            print ("No match found for '{0}'".format(inp))
+                    else:
+                        print("Found a panel match for input '{0}'!".format(inp))
+                        print(result)
+                        for gene in result.tso_genes:
+                            print("{0}\t{1}".format(gene, gene.coverage))
+                print("-" * 40)
+        except KeyboardInterrupt:
+            print("Exiting...")
     else:
         print "No valid command input."
         print "Printing cfg values."
@@ -607,6 +656,9 @@ if __name__ == "__main__":
                             "(version 1.0 and upper) and/or table of combined panels.")
     group.add_argument("-u", "--update", action="store_true", default=False,
                        help="Updates the custom annotations for HPO, OMIM terms.")
+    group.add_argument("-g", "--gene", action="store_true", default=False,
+                       help="The gene tool is a tool to help search for genes and panels covered by Truesight One "
+                            "from custom panels, PanelApp panels and HGNC gene symbols.")
     parser.add_argument("-p", "--panels", type=argparse.FileType('r'),
                         help="The input file that determines the genes or panels that will be marked in the final excel"
                              " file (column GeneReq) with an extra annotation "

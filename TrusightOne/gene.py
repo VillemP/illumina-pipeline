@@ -80,6 +80,20 @@ def get_tso_status(gene):
 
 
 def find_gene(name):
+    """
+    Find the Gene object from the genes created from config.tsoGenes.
+    Compares the gene name (which is converted to HGNC if possible) to the input,
+    which is also converted to HGNC if possible. Thus returns a gene regardless of the original
+    name and the synonym it was searched with.
+    :param name: Gene symbol
+    :return: General TSO gene object match or None
+    """
+    hgnc = find_synonyms(name)
+    # Returns a list if name is HGNC, otherwise returns the HGNC str from synonym
+    if type(hgnc) is not list:
+        name = hgnc
+    else:
+        name = name  # for clarity, it was already a HGNC symbol
     genes = [g for g in tso_genes if g.name == name]
     if len(genes) > 0:
         if len(genes) == 1:
@@ -90,6 +104,7 @@ def find_gene(name):
             # TODO: What happens if there are several matches?
     else:
         sys.stderr.write("PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
+        return None
 
 
 def synonyms_to_hgnc(symbol):
@@ -125,6 +140,7 @@ def find_hgnc(gene):
     This function returns the correct HGNC declared gene symbol regardless if
     the gene was created with a synonymous symbol. If the symbol is not a HGNC Approved Name, HGNC previous symbol or
     HGNC synonym --> return None
+    Some synonymous symbols exist match up to several HGNC names
     :param symbol: string symbol the Gene object was created with
     :return:
     """
@@ -188,7 +204,7 @@ class Gene(object):
     @property
     def name(self):
         # Every time the gene name is used, the name property will either return the HGNC Approved name
-        # or throw an AssertionError, see also the find_synonyms() docstring.
+        # or set its own name
         result = find_hgnc(self)
         if result is None:
             # sys.stderr.write("Tried to use a gene object with a HGNC-nonexistant symbol: {0}\n".format(self._name))
