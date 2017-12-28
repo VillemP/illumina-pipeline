@@ -104,3 +104,7 @@ ENV/
 
 # configs
 *.yaml
+/TSO-pipe-log.txt
+/TSO-pipe-log.txt.sorted.txt
+TSO-pipe-log.txt
+TSO-pipe-log.txt.sorted.txt

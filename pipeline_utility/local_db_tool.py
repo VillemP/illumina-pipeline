@@ -1,4 +1,4 @@
-# deprecated, used with --old
+# TODO: Replace the DB handling in MiniseqPipeline.py and illumina_pipe.py so that both use the same commands
 import os
 import shlex
 
@@ -112,5 +112,6 @@ def update_database(samples, replace, testmode, config):
         updated, skip = update_vcf_list(vcfslist, config)
         if copied + updated > 0:
             # If there were any variant files updated (copied) or
+            # TODO: Fill the parameters
             combine_variants(os.path.join(config.db_directory, db_name_samples + ".vcf"))
     pass

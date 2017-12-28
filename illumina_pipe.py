@@ -35,7 +35,9 @@ config = TrusightOne.truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.
 handler = JsonHandler(config.json_dir, config)
 combinedpanels = None
 # Number of samples in the DB
-total_samples = 0
+# By default, the base db number is 0 but can be set to an increased number, if
+# a combined VCF file is used (e.g. from a previous batch)
+total_samples = config.db_base_n
 db_name_samples = config.db_name  # Updated later with current samples name
 project = os.path.basename(os.path.normpath(workingDir))
 assert os.path.exists(config.annotator)
@@ -54,7 +56,7 @@ def logdata(stdout):
 
 
 def sortlog():
-    with open(config.logfile) as log:
+    with open(config.logfile, "w+") as log:
         with open(config.logfile + ".sorted.txt", "wb+") as out:
             lines = log.readlines()
             lines.sort()
@@ -113,7 +115,7 @@ def update_vcf_list(vcfs_list):
                 db_vcfs.write(line + "\n")
             else:
                 skipped += 1
-    total_samples = curr_len + i
+    total_samples += curr_len + i
     db_name_samples = db_name_samples + str(total_samples)
     create_arguments_file(str(total_samples))
     print ("Updated {0} with {1} unique samples. "
@@ -329,12 +331,14 @@ def annotate(sample, testmode):
 
 
 def calc_coverage(sample):
-    # TODO: Create a refSeq and target file for coverage analysis
     # grep $'\t'${gene}$'\.' < ${targets} >> ${covdir}${prefix}.genes.bed
     # sort -k1,1V -k2,2n -k3,3n < ${covdir}${prefix}.genes.bed > ${covdir}${prefix}.genes.sorted.bed
-    sample.targetfile = None
-    sample.refseq = None
     # TODO: replace with BEDtools?
+    with NamedTemporaryFile(delete=False) as temptarget:
+        pipeline_utility.file_utility.write_targetfile(sample.order_list, targetfile=config.targetfile,
+                                                       out=temptarget)
+    sample.targetfile = temptarget
+
     path = os.path.join(workingDir, sample.name + "_coverage")
     try:
         os.makedirs(path)
@@ -348,7 +352,8 @@ def calc_coverage(sample):
                              '-L {3} '
                              '-geneList {4} '
                              '-ct 1 -ct 10 -ct 20 -ct 50 '
-                             '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, sample.targetfile,
+                             '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation,
+                                             sample.targetfile,
                                              sample.refseq, os.path.join(path, sample.name + ".requested")))
     diagnose_args = shlex.split('java -Xmx4g -jar {0} '
                                 '-T DiagnoseTargets '
@@ -356,7 +361,8 @@ def calc_coverage(sample):
                                 '-I {2} '
                                 '-L {3} '
                                 '-min 20 '
-                                '-o {4}'.format(config.toolkit, config.reference, sample.bamlocation, sample.targetfile,
+                                '-o {4}'.format(config.toolkit, config.reference, sample.bamlocation,
+                                                sample.targetfile,
                                                 os.path.join(path, sample.name + ".diagnoseTargets")))
     table_args = shlex.split('java -Xmx4g -jar {0} '
                              '-T VariantsToTable '
@@ -485,23 +491,27 @@ def run_samples(args, sample_list):
     for sample in samples:
         try:
             annotate(sample, args.test)
-            # calc_coverage(sample)
+            if args.coverage:
+                calc_coverage(sample)
             create_excel_table(sample)
 
+            # Delete the intermediary files, unnecessary files and files that have already been inserted
+            # into the output file.
             if not args.keep and sample.annotated:
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_cumulative_coverage_counts"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_cumulative_coverage_proportions"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_interval_statistics"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                       sample.name + ".sample_statistics"))
+                if args.coverage:
+                    sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+                    sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                     sample.name + ".sample_cumulative_coverage_counts"))
+                    sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                     sample.name + ".sample_cumulative_coverage_proportions"))
+                    sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                     sample.name + ".sample_interval_statistics"))
+                    sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                                     sample.name + ".sample_statistics"))
 
                 for trashfile in sample.trash:
                     try:
@@ -521,13 +531,14 @@ def run_samples(args, sample_list):
             sys.stderr.write("PIPELINE ERROR: {0}\nTrace: ".format(sample))
             traceback.print_exc(file=sys.stderr)
             raise error
-        # TODO: Run conifer
+            # TODO: Run conifer
     print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
     if len(unfinished_samples) > 0:
         for sample in unfinished_samples:
             print("{0} is unfinished. Check for errors.".format(sample))
         print("-" * 40)
         print("You can rerun with --samples {0}".format(" ".join([s.name for s in unfinished_samples])))
+    sortlog()
 
 
 def main(args):
@@ -598,7 +609,7 @@ def main(args):
             print("Input the gene name or panel name/panel tag (MITO, etc)/panel id code (PanelApp) to find "
                   "if it is covered TSO or return the genes from the panel that are covered on TSO.")
             while True:
-                inp = raw_input("Input: \n")
+                inp = raw_input("Input (case-sensitive) [Ctrl+C to exit]: \n")
                 synonyms = TrusightOne.gene.find_synonyms(inp)
                 print("'{0}' is HGNC declared symbol: {1}".format(inp, TrusightOne.gene.is_hgnc(inp)))
                 if len(synonyms) > 0:
@@ -607,8 +618,7 @@ def main(args):
                 result = TrusightOne.gene.find_gene(inp)
                 if result is not None:
                     print("Gene is covered on TSO.\n"
-                          "Input: {0}\n"
-                          "HGNC symbol: {1}".format(inp, result))
+                          "HGNC symbol: {0}".format(result))
                 else:
                     # Is it a panel?
                     result = TrusightOne.gene_panel.match_order_to_panels(inp, combinedpanels, handler)
@@ -631,9 +641,10 @@ def main(args):
         except KeyboardInterrupt:
             print("Exiting...")
     else:
-        print "No valid command input."
-        print "Printing cfg values."
-        print config
+        print("No valid command input. Use --help or --manual to view commands.")
+        print("Printing cfg values.")
+        for line in config:
+            print(line)
 
 
 if __name__ == "__main__":
@@ -678,6 +689,8 @@ if __name__ == "__main__":
                              "Useful in a test scenario when running large batches repeatedly or if the VCF is "
                              "not supposed to be inserted into the DB.",
                         action="store_false", default=True)
+    parser.add_argument("-c", "--coverage", help="Calculates the coverage tables for the sample's order.",
+                        action="store_true", default=False)
     parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
                                              "expects the DB to exist.",
                         action="store_true", default=False)
@@ -693,7 +706,6 @@ if __name__ == "__main__":
         parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
     main(args)
-    sortlog()
 
     for p in processes:
         try:

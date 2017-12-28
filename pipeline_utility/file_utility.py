@@ -1,5 +1,9 @@
+import argparse
 import os
 
+import TrusightOne.gene as gene
+
+# Import a faster walker if it is installed
 try:
     from scandir import walk
 except ImportError:
@@ -7,8 +11,6 @@ except ImportError:
 
 import shutil
 import sys
-
-# MiniSeq: /media/kasutaja/ge_ngs/smb-share:server=srvfail,share=ge_ngs/MiniSeq
 
 commands = ['WriteVcfs', 'CopyVcfs']
 duplicates = 0
@@ -161,19 +163,98 @@ def count_unique_names(infile, col, seperator="\t"):
     return len(unique)
 
 
+def filter_targetfile(geneslist, targetfile):
+    """
+    Creates a custom sorted targetfile from a sample-specific order of gene symbols.
+    Equivalent to:
+    grep $'\t'${gene}$'\.' < ${targets.bed} >> ${sample}.genes.bed
+    sort -k1,1V -k2,2n -k3,3n < ${sample}.genes.bed > ${prefix}.genes.sorted.bed
+
+    Also tries to convert the gene name in the target file into a HGNC symbol since internally
+    all gene names in the application are HGNC symbols if possible (see gene.py)
+    :param geneslist: list of Gene.names (HGNC gene symbols)
+    """
+    final_targets = []
+    with targetfile as target:
+        # Convert the targetfile to a list with stripped values
+        targets = target.readlines()
+        split_targets = []
+        for line in targets:
+            target_line = []
+            for element in line.split('\t'):
+                target_line.append(element.strip())
+            # The last element of the target line is a string GENE_name.EXON_START_int.EXON_END_int
+            # Get the gene name from the target
+            gene_name = target_line[-1].split(".")[0]
+            g = gene.find_gene(gene_name)  # Gene object
+            if g is not None:
+                gene_name = g.name
+            target_line.append(gene_name)  # The final line of the target is now a converted HGNC symbol
+            split_targets.append(target_line)
+
+        for ge in geneslist:
+            # The final element is the converted HGNC symbol, also convert the query symbol (ge) to a HGNC name
+            g = gene.find_gene(ge)  # Returns a gene object
+            if g is not None:
+                gene_name = g.name  # Found a gene
+            else:
+                gene_name = ge  # Try to find the gene from the targets using the ordered symbol
+            gene_targets = [line for line in split_targets if line[-1] == gene_name]
+            for t in gene_targets:
+                final_targets.append(t)
+    s = sorted(final_targets,
+               key=lambda final_target: final_target[0])  # sort by chromosome (numeric not lexicographic)
+    t = sorted(s, key=lambda final_target: final_target[1])  # sort by start index
+    u = sorted(t, key=lambda final_target: final_target[2])  # sort by end
+    return u
+
+
+def write_targetfile(geneslist, targetfile, out=sys.stdout):
+    for line in filter_targetfile(geneslist, targetfile):
+        out.write("\t".join(line) + "\n")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) >= 3:
-        cmd = str(sys.argv[1]).lower()
-        if cmd == "writevcfs":
-            directory = sys.argv[2]
-            dest = str(sys.argv[3])
-            write_vcfs_list(directory, dest)
-        elif cmd == "copyvcfs":
-            assert len(sys.argv) >= 4
-            src = sys.argv[2]
-            dest = sys.argv[3]
-            f = open(src)  # dir
-            copy_vcf(f.readlines(), dest)
-            f.close()
-    else:
-        print("Incorrect command syntax. Insufficient args for command '{}'".format(sys.argv[-1]))
+
+    parser = argparse.ArgumentParser(prog="Annotation pipeline command-line file tool.")
+    subparsers = parser.add_subparsers(title="commands", dest="command")
+
+    writevcfs = subparsers.add_parser("writevcfs", help="Find all the VCFs in the source directory "
+                                                        "and write their paths to a destination file")
+    writevcfs.add_argument("-s", "--source",
+                           help="Find all the VCFs in the source directory and write their paths to a destination file",
+                           action="store", type=str)
+    writevcfs.add_argument("-o", "--output",
+                           help="Find all the VCFs in a directory and copy them to a destination directory",
+                           action="store", type=str)
+
+    copyvcfs = subparsers.add_parser("copyvcfs", help="This tool copies all the VCFs listed in a file into a directory")
+    copyvcfs.add_argument("-s", "--source",
+                          help="Source file of paths to be copied",
+                          action="store", type=str)
+    copyvcfs.add_argument("-d", "--destination",
+                          help="Destination directory for the VCFS to be copied into.",
+                          action="store", type=str)
+
+    targetfile = subparsers.add_parser("targetfile")
+    targetfile.add_argument("-g", "--genes", help="List of genes to be grepped and sorted into a new targetfile",
+                            action="store", type=str, nargs="+")
+    targetfile.add_argument("-t", "--targetfile", help="The input targetfile.", type=argparse.FileType('r'))
+    targetfile.add_argument("-s", "--hgnc", help="The HGNC gene symbols reference file.", type=str, action="store")
+    targetfile.add_argument("-r", "--tsogenes", help="The genes reference file for "
+                                                     "genes covered on the sequencing panel", type=str, action="store")
+    targetfile.add_argument("-o", "--output", help="The output file to be created", action="store", type=str)
+    args = parser.parse_args()
+
+    if args.command == "writevcfs":
+        write_vcfs_list(args.source, args.output)
+    if args.command == "copyvcfs":
+        with open(args.source) as f:
+            copy_vcf(f.readlines(), args.destination)
+    if args.command == "targetfile":
+        gene.load_hgnc_genes(args.hgnc)
+        gene.load_tso_genes(args.tsogenes)
+        with open(args.output, "wb+") as f:
+            for line in filter_targetfile(args.genes, args.targetfile):
+                print("\t".join(line))
+                f.write("\t".join(line) + "\n")

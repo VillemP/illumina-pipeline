@@ -14,6 +14,7 @@ def load_hgnc_genes(hgncPath):
     This function loads the HGNC genes from local data into a dictionary, with unique symbols corresponding to
     1) lists of symbol synonyms (hgnc_genes dict)
     2) unique synonyms to their HGNC symbol (synonym_hgnc dict)
+    TODO: Make it case-insensitive
     :param hgncPath: Direct path to the HGNC containing text file (which can be created with the -update tool)
     """
     try:
@@ -26,7 +27,14 @@ def load_hgnc_genes(hgncPath):
                 synonym_list = symbols[1].strip().split(',') + symbols[2].strip().split(',')
                 for synonym in synonym_list:
                     if synonym != "" and synonym is not None:
-                        clean_list.append(synonym.strip())
+                        synonym = synonym.strip()
+                        if synonym == synonym.upper():
+                            clean_list.append(synonym)
+                        else:
+                            clean_list.append(synonym)
+                            clean_list.append(synonym.upper())  # The synonym contains lower-chars,
+                            # add a UPPER_CASE version to the possible synonym bank
+
                 hgnc_genes[symbols[0]] = clean_list
                 # Match every synonym to it's HGNC symbol to enable quicker searching
         for key, value in hgnc_genes.items():
@@ -116,10 +124,12 @@ def find_gene(name):
 
 
 def synonyms_to_hgnc(symbol):
-    # for synonyms in hgnc_genes.values():
-    #   if symbol in synonyms:
-    #        return synonyms
-
+    """
+    Convert a synonym to HGNC. HGNC symbols have to be preloaded (load_hgnc_genes)
+    :param symbol: gene name
+    :return: HGNC symbol or None
+    """
+    assert len(synonym_hgnc) > 0, "HGNC symbols have not been loaded!"
     return synonym_hgnc.get(symbol, None)
     # return None
 
@@ -131,8 +141,8 @@ def find_synonyms(symbol):
     :param symbol: The gene symbol to be searched against.
     :return: Return a list of every possible synonym except self
     """
-    result = ()
-    result = hgnc_genes.get(symbol, None)
+    result = []
+    result = hgnc_genes.get(symbol, [])
 
     if result is None:
         # Perhaps a synonym was used
@@ -230,4 +240,6 @@ class Gene(object):
         return result
 
     def __str__(self):
-        return "{0} ({1})".format(self._hgnc, self._name)
+        if self._hgnc == self._name:
+            return self._hgnc
+        return "{0} (HGNC: {1})".format(self._hgnc, self._name)

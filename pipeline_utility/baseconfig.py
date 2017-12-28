@@ -21,6 +21,9 @@ class BaseConfig(yaml.YAMLObject):
     def __str__(self):
         return "Config:\n{}".format(self.__dict__)
 
+    def __iter__(self):
+        return iter(self.__dict__.items())
+
     @property
     def filepath(self):
         return self._filepath
