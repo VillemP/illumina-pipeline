@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 from distutils.version import LooseVersion as Version
 
 from conda._vendor.progressbar import ProgressBar
@@ -55,6 +56,7 @@ class JsonHandler(JsonHandlerBase):
 
     def load_panels(self, location, callback=None):
         print("Initializing panels...")
+        start_time = time.time()
         panels = file_utility.find_filetype(location, ".json")
         len_panels = len(panels)
         if len(self.panels) > 0:
@@ -75,7 +77,8 @@ class JsonHandler(JsonHandlerBase):
                     self.panels.append(newpanel)
                     if callback is not None:
                         callback(i + 1, len_panels)
-            print("Loaded {0} panels from local data.".format(len(self.panels)))
+            duration = time.time() - start_time
+            print("Loaded {0} panels from local data in {1}s".format(len(self.panels), duration))
             return self.panels
         else:
             self.get_all_panels()

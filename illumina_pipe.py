@@ -324,8 +324,8 @@ def annotate(sample, testmode):
                 print("Finished annotating sample {0}".format(sample.name))
                 print(sample)
         except IOError:
-            print("Could not start custom annotations due to {0} not finishing for {1}.".format(config.annotator,
-                                                                                                sample.name))
+            print("Could not start custom annotations due to {0} not finishing for {1}. "
+                  "File not found.".format(config.annotator, sample.name))
 
 
 def calc_coverage(sample):
@@ -600,8 +600,9 @@ def main(args):
             while True:
                 inp = raw_input("Input: \n")
                 synonyms = TrusightOne.gene.find_synonyms(inp)
-                if type(synonyms) is list:
-                    print("Synonyms for {0}: {1}".format(inp, synonyms))
+                print("'{0}' is HGNC declared symbol: {1}".format(inp, TrusightOne.gene.is_hgnc(inp)))
+                if len(synonyms) > 0:
+                    print("HGNC synonyms for {0}: {1}".format(inp, synonyms))
 
                 result = TrusightOne.gene.find_gene(inp)
                 if result is not None:

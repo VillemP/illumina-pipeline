@@ -26,10 +26,14 @@ class GenePanel(object):
     def add_genes(self, unpacked_json):
         self.genes_json = unpacked_json
         for gene in self.genes_json['result']['Genes']:
-            # if str(gene['name']) in genesdict:
-            # self.genes.append()
+            # Use preexisting gene objects to save time on searching for name matches and so forth
+            # if str(gene['GeneSymbol']) in genesdict:
+            #    self.genes.append(genesdict[gene['GeneSymbol']])
+            # else:
             g = Gene(self, gene)
             self.genes.append(g)
+            #genesdict[gene['GeneSymbol']] = g
+
 
     def __str__(self):
         return "Name={0}, Id={1}, Version={2}, Total genes={3}" \

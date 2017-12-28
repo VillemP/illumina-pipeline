@@ -10,7 +10,7 @@ class TruesightOneConfig(BaseConfig):
                  reference='directory to ucsc.hg19.fasta',
                  targetfile=".bed target file", refseq=".refSeq file", annotator=None, annotation_db=None,
                  custom_annotation_dir=None, snpsift="directory to Snpsift.jar", tsoGenes="TSO_coverage.txt",
-                 hgncPath=None, gene_table=None):
+                 hgncPath=None, gene_table=None, db_base_n=0):
         super(TruesightOneConfig, self).__init__(filepath)
         self._hidden_fields.append('db_vcf_dir')
         self.json_dir = json_dir
@@ -20,6 +20,7 @@ class TruesightOneConfig(BaseConfig):
         self.db_directory = db_directory
         self.db_vcf_dir = os.path.join(self.db_directory, self.db_vcf_list_name)
         self.db_name = db_name
+        self.db_base_n = db_base_n
         self.logfile = logfile
         self.toolkit = toolkit
         self.reference = reference

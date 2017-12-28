@@ -52,6 +52,7 @@ def load_tso_genes(tsoPath):
                 gene = Gene(panel=None, json=None, on_TSO=True)
                 gene._name = gene_symbol
                 gene.coverage = coverage
+                _set_hgnc(gene)
                 tso_genes.append(gene)
     except IOError as error:
         sys.stderr.write("PIPELINE ERROR: {0}\n"
@@ -72,7 +73,8 @@ def get_tso_status(gene):
         # Load TSO genes if currently not loaded.
         load_tso_genes(gene.panel.config.tsoGenes)
     # get the coverage from TSO genes (name based matching, if match found --> gene is covered)
-    match_coverage = next((g.coverage for g in tso_genes if g.name == gene.name), None)
+    name = gene.name
+    match_coverage = next((g.coverage for g in tso_genes if g._hgnc == name), None)
     if match_coverage is not None:
         gene.coverage = float(match_coverage)
         return True
@@ -88,23 +90,29 @@ def find_gene(name):
     :param name: Gene symbol
     :return: General TSO gene object match or None
     """
-    hgnc = find_synonyms(name)
-    # Returns a list if name is HGNC, otherwise returns the HGNC str from synonym
-    if type(hgnc) is not list:
-        name = hgnc
+    hgnc = hgnc_genes.get(name, None)
+    # HGNC is None -> might be a synonym
+    if hgnc is None:
+        hgnc = synonyms_to_hgnc(name)
+        if hgnc is not None:
+            name = hgnc  # We found a match!
     else:
         name = name  # for clarity, it was already a HGNC symbol
-    genes = [g for g in tso_genes if g.name == name]
-    if len(genes) > 0:
-        if len(genes) == 1:
-            return genes[0]
+
+    if hgnc is not None:
+        genes = [g for g in tso_genes if g._hgnc == name]
+        if len(genes) > 0:
+            if len(genes) == 1:
+                return genes[0]
+            else:
+                sys.stderr.write("PIPELINE ERROR: The gene {0} had several matches among the covered genes!\n"
+                                 .format(name))
+                # TODO: What happens if there are several matches?
         else:
-            sys.stderr.write("PIPELINE ERROR: The gene {0} had several matches among the covered genes!\n"
-                             .format(name))
-            # TODO: What happens if there are several matches?
+            sys.stderr.write("PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
+            return None
     else:
-        sys.stderr.write("PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
-        return None
+        sys.stderr.write("The gene {0} was not found among HGNC names and synonyms.\n".format(name))
 
 
 def synonyms_to_hgnc(symbol):
@@ -130,11 +138,19 @@ def find_synonyms(symbol):
         # Perhaps a synonym was used
         hgnc = synonyms_to_hgnc(symbol)
         if hgnc is not None:
-            result = hgnc
+            result = hgnc_genes.get(hgnc, [])
+            if len(result) > 0:
+                result.append(hgnc)  # return a full list of synonyms, including HGNC symbol
     return result
 
 
-def find_hgnc(gene):
+def is_hgnc(name):
+    if hgnc_genes.get(name, None) is not None:
+        return True
+    return False
+
+
+def _set_hgnc(gene):
     # type: (Gene) -> str
     """
     This function returns the correct HGNC declared gene symbol regardless if
@@ -158,6 +174,7 @@ def find_hgnc(gene):
             return result
     else:
         load_hgnc_genes(gene.panel.config.hgncPath)
+        # _set_hgnc(gene)
 
 
 class Gene(object):
@@ -190,6 +207,7 @@ class Gene(object):
             self.coverage = -1.0
             self._hgnc = None
         # This is used for creating Genes from JSONs
+        _set_hgnc(self)
         if on_TSO is None:
             self.on_TSO = get_tso_status(self)
         # Genes from local text file
@@ -205,11 +223,11 @@ class Gene(object):
     def name(self):
         # Every time the gene name is used, the name property will either return the HGNC Approved name
         # or set its own name
-        result = find_hgnc(self)
+        result = _set_hgnc(self)
         if result is None:
             # sys.stderr.write("Tried to use a gene object with a HGNC-nonexistant symbol: {0}\n".format(self._name))
             return self._name
         return result
 
     def __str__(self):
-        return self.name
+        return "{0} ({1})".format(self._hgnc, self._name)
