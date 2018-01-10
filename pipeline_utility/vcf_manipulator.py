@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
 import sys
 
 
@@ -31,11 +33,12 @@ def create_gene_dict(lines):
 
 
 def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
+    sys.stderr.write("Starting VCF manipulator with '{0}' annotation...".format(annotation))
     # read in the vcf
     headers = 0
     variants = 0
 
-    for row in vcf:
+    for i, row in enumerate(vcf):
         if row[0] == "#":
             headers += 1
 
@@ -58,6 +61,9 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
             variant[7] = ';'.join(info)
             output.write("\t".join(variant) + "\n")
             variants += 1
+        if i % 1000 == 0:
+            sys.stderr.write("Done with {0} lines...\n".format(i))
+    sys.stderr.write("Finished VCF manipulator with '{0}' annotation...\n".format(annotation))
 
 
 if __name__ == "__main__":

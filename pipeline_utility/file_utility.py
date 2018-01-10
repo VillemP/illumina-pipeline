@@ -1,5 +1,6 @@
 import argparse
 import os
+from distutils.version import LooseVersion as Version
 
 import TrusightOne.gene as gene
 
@@ -99,6 +100,8 @@ def write_prefixes_list(dir, output):
                 prefix_clean = prefix_clean[0]
                 prefixes.write(prefix_clean + "\n")
                 clean_prefixes.append(prefix_clean)
+
+
             else:
                 pass
                 # This file might be an intermediary vcf file
@@ -163,10 +166,11 @@ def count_unique_names(infile, col, seperator="\t"):
     return len(unique)
 
 
-def filter_targetfile(geneslist, targetfile):
+# TODO: convert sort args to **nargs and sort as many positions as required
+def filter_targetfile(geneslist, targetfile, genecolumn=3, sort0=0, sort1=1, sort2=2):
     """
-    Creates a custom sorted targetfile from a sample-specific order of gene symbols.
-    Equivalent to:
+    Creates a custom sorted targetfile (default) or refseq from a sample-specific order of gene symbols.
+    Default is equivalent to:
     grep $'\t'${gene}$'\.' < ${targets.bed} >> ${sample}.genes.bed
     sort -k1,1V -k2,2n -k3,3n < ${sample}.genes.bed > ${prefix}.genes.sorted.bed
 
@@ -174,43 +178,57 @@ def filter_targetfile(geneslist, targetfile):
     all gene names in the application are HGNC symbols if possible (see gene.py)
     :param geneslist: list of Gene.names (HGNC gene symbols)
     """
+    g = None
     final_targets = []
-    with targetfile as target:
-        # Convert the targetfile to a list with stripped values
-        targets = target.readlines()
-        split_targets = []
-        for line in targets:
-            target_line = []
-            for element in line.split('\t'):
-                target_line.append(element.strip())
-            # The last element of the target line is a string GENE_name.EXON_START_int.EXON_END_int
-            # Get the gene name from the target
-            gene_name = target_line[-1].split(".")[0]
-            g = gene.find_gene(gene_name)  # Gene object
+    # Convert the targetfile to a list with stripped values
+    with open(targetfile) as targetfile:
+        targets = targetfile.readlines()
+    split_targets = []  # Final edited list
+    for i, line in enumerate(targets):
+        target_line = []
+        for element in line.split('\t'):
+            target_line.append(element.strip())
+        # The last element of the target line is a string GENE_name.EXON_START_int.EXON_END_int
+        # Get the gene name from the target
+        gene_name = target_line[genecolumn].split(".")[0]  # The gene name is the first element in both BED and refseq
+        if i == 0:
+            g = gene.find_gene(gene_name)
+        else:
             if g is not None:
-                gene_name = g.name
-            target_line.append(gene_name)  # The final line of the target is now a converted HGNC symbol
-            split_targets.append(target_line)
-
-        for ge in geneslist:
-            # The final element is the converted HGNC symbol, also convert the query symbol (ge) to a HGNC name
-            g = gene.find_gene(ge)  # Returns a gene object
-            if g is not None:
-                gene_name = g.name  # Found a gene
+                if g.name != gene_name:  # Don't go looking for the gene again, it's the same gene but a different exon
+                    g = gene.find_gene(gene_name)  # The target is for a new gene
             else:
-                gene_name = ge  # Try to find the gene from the targets using the ordered symbol
-            gene_targets = [line for line in split_targets if line[-1] == gene_name]
-            for t in gene_targets:
-                final_targets.append(t)
+                g = gene.find_gene(gene_name)  # g was set to None (no gene found), therefore look for it
+        if g is not None:
+            gene_name = g.name  # Ensure the HGNC name for this target, if none found, gene_name is the same as before
+        target_line.append(gene_name)  # The final line of the target is now a converted HGNC symbol or
+        # the string grepped from the column
+        split_targets.append(target_line)  # List of all lines
+
+    for ge in geneslist:
+        # The final element is the converted HGNC symbol, also convert the query symbol (ge) to a HGNC name
+        g = gene.find_gene(ge)  # Returns a gene object
+        if g is not None:
+            gene_name = g.name  # Found a gene
+        else:
+            gene_name = ge  # Try to find the gene from the targets using the ordered symbol
+        gene_targets = [line for line in split_targets if line[-1] == gene_name]
+        for t in gene_targets:
+            final_targets.append(t)
     s = sorted(final_targets,
-               key=lambda final_target: final_target[0])  # sort by chromosome (numeric not lexicographic)
-    t = sorted(s, key=lambda final_target: final_target[1])  # sort by start index
-    u = sorted(t, key=lambda final_target: final_target[2])  # sort by end
-    return u
+               key=lambda final_target: Version(final_target[sort0]))  # sort by chromosome (numeric not lexicographic)
+    s = sorted(s, key=lambda final_target: final_target[sort1])  # sort by start index
+    s = sorted(s, key=lambda final_target: final_target[sort2])  # sort by end
+    return s
 
 
 def write_targetfile(geneslist, targetfile, out=sys.stdout):
     for line in filter_targetfile(geneslist, targetfile):
+        out.write("\t".join(line) + "\n")
+
+
+def write_refseq(geneslist, refseq, out=sys.stdout):
+    for line in filter_targetfile(geneslist, refseq, genecolumn=12, sort0=2, sort1=4, sort2=5):
         out.write("\t".join(line) + "\n")
 
 
@@ -254,7 +272,5 @@ if __name__ == "__main__":
     if args.command == "targetfile":
         gene.load_hgnc_genes(args.hgnc)
         gene.load_tso_genes(args.tsogenes)
-        with open(args.output, "wb+") as f:
-            for line in filter_targetfile(args.genes, args.targetfile):
-                print("\t".join(line))
-                f.write("\t".join(line) + "\n")
+        # write_targetfile(args.genes, args.targetfile)
+        write_refseq(args.genes, args.targetfile.name)

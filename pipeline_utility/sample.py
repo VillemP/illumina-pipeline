@@ -13,10 +13,11 @@ class Sample(object):
             self.annotated = False
             self.reduced_variants_vcf = None  # Currently not in use but can be used to reduce variants before annotation
             self.genes_tempfile = None  # The tempfile containing the self.final_order output (for vcf_manipulator)
-            self.panels = list()  # The panels ordered to be annotated
-            self.genes = list()  # The genes ordered to be annotated (Gene)
+            self.panels = list()  # The panels ordered to be annotated (panel, annotation_string)
+            self.genes = list()  # The genes ordered to be annotated (Gene, annotation_string) tuple
             self.trash = list()  # Files to be deleted that are byproducts of annotators/toolkits
-            self.targetfile = None  # The target.bed file specific for this sample's panel/gene order
+            self.temptargetfile = None  # The target.bed file specific for this sample's panel/gene order
+            self.temprefseq = None
             self.table_files = list()  # The output files that are converted into excel files
             assert os.path.exists(self.vcflocation)  # The input VCF
             assert os.path.exists(self.bamlocation)  # The input BAM
@@ -27,8 +28,18 @@ class Sample(object):
             raise IOError("VCF and BAM files for sample {0} not found!".format(name))
 
     def __str__(self):
-        return "{0} Annotated:{1} Finished:{2} Files {3}".format(self.name, str(self.annotated), str(self.finished),
-                                                                 str(self.table_files))
+        if not self.finished:
+            result = "{0} Annotated:{1} Finished:{2} Files {3} TEMP: {4}".format(self.name, str(self.annotated),
+                                                                                 str(self.finished),
+                                                                                 str(self.table_files),
+                                                                                 str([self.temptargetfile,
+                                                                                      self.temprefseq,
+                                                                                      self.genes_tempfile]))
+        else:
+            result = "{0} Annotated:{1} Finished:{2} Files {3}".format(self.name, str(self.annotated),
+                                                                       str(self.finished),
+                                                                       str(self.table_files))
+        return result
 
     @property
     def final_order(self):
@@ -50,12 +61,14 @@ class Sample(object):
     def order_list(self):
         """
         Unique gene symbols (already converted to HGNC) that are to be annotated
-        :return: Gene symbol list
+        :return: Gene list
         """
         order = []
         for panel_order in self.panels:
+            # panel_order is a (panel, panel annotation) tuple
             for gene in panel_order[0].tso_genes:
                 order.append(gene.name)
         for g_order in self.genes:
-            order.append(g_order)
+            # gene order is a (gene, annotation string) tuple
+            order.append(g_order[0].name)
         return order

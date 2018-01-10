@@ -32,8 +32,8 @@ def load_hgnc_genes(hgncPath):
                             clean_list.append(synonym)
                         else:
                             clean_list.append(synonym)
-                            clean_list.append(synonym.upper())  # The synonym contains lower-chars,
-                            # add a UPPER_CASE version to the possible synonym bank
+                            clean_list.append(
+                                synonym.upper())  # The synonym contains lower-chars, add these to the posible synonym bank
 
                 hgnc_genes[symbols[0]] = clean_list
                 # Match every synonym to it's HGNC symbol to enable quicker searching
@@ -82,7 +82,7 @@ def get_tso_status(gene):
         load_tso_genes(gene.panel.config.tsoGenes)
     # get the coverage from TSO genes (name based matching, if match found --> gene is covered)
     name = gene.name
-    match_coverage = next((g.coverage for g in tso_genes if g._hgnc == name), None)
+    match_coverage = next((g.coverage for g in tso_genes if g._hgnc == name.upper()), None)
     if match_coverage is not None:
         gene.coverage = float(match_coverage)
         return True

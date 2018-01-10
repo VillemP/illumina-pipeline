@@ -171,16 +171,16 @@ class CombinedPanels(dict):
                                        if panel.id == '588728f38f62030cf7152165']
 
     def __getitem__(self, item):
-        return super(CombinedPanels, self).__getitem__([key for key in self.iterkeys() if item in key][0])
+        return super(CombinedPanels, self).__getitem__([key for key in self.iterkeys() if item == key][0])
 
     def __delitem__(self, item):
-        return super(CombinedPanels, self).__delitem__([key for key in self.iterkeys() if item in key][0])
+        return super(CombinedPanels, self).__delitem__([key for key in self.iterkeys() if item == key][0])
 
     def get(self, item, default=None):
-        return super(CombinedPanels, self).get([key for key in self.iterkeys() if item in key][0], default)
+        return super(CombinedPanels, self).get([key for key in self.iterkeys() if item == key][0], default)
 
     def __contains__(self, item):
-        return super(CombinedPanels, self).__contains__([key for key in self.iterkeys() if item in key][0])
+        return super(CombinedPanels, self).__contains__([key for key in self.iterkeys() if item == key][0])
 
     def table(self):
         lines = list()
