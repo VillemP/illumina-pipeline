@@ -18,6 +18,7 @@ def load_hgnc_genes(hgncPath):
     :param hgncPath: Direct path to the HGNC containing text file (which can be created with the -update tool)
     """
     try:
+        sys.stderr.write("Loading HGNC genes from {0}:\n".format(hgncPath))
         with open(hgncPath) as hgnc:
             data = hgnc.readlines()
             for line in data:
@@ -40,6 +41,7 @@ def load_hgnc_genes(hgncPath):
         for key, value in hgnc_genes.items():
             for symbol in value:  # values
                 synonym_hgnc[symbol] = key  # Match every synonym to its HGNC approved symbol
+        sys.stderr.write("Loaded {0} HGNC genes and {1} HGNC synonyms.\n".format(len(hgnc_genes), len(synonym_hgnc)))
 
     except IOError as error:
         sys.stderr.write("PIPELINE ERROR: {0}\n"
@@ -137,9 +139,9 @@ def synonyms_to_hgnc(symbol):
 def find_synonyms(symbol):
     """
     Get the synonyms for a HGNC symbol, if it isn't a HGNC Approved Name, try to find it among
-    HGNC synonyms, in this case
-    :param symbol: The gene symbol to be searched against.
-    :return: Return a list of every possible synonym except self
+    HGNC synonyms, in this case return a list of every possible synonym except self
+    :param symbol: str | The gene symbol to be searched against.
+    :return: list | Return a list of every possible synonym except self
     """
     result = []
     result = hgnc_genes.get(symbol, [])

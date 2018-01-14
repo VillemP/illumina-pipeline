@@ -32,8 +32,8 @@ def create_gene_dict(lines):
     return d
 
 
-def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
-    sys.stderr.write("Starting VCF manipulator with '{0}' annotation...".format(annotation))
+def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout, progress=True):
+    sys.stderr.write("Starting VCF manipulator with '{0}' annotation...\n".format(annotation))
     # read in the vcf
     headers = 0
     variants = 0
@@ -50,6 +50,7 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
             output.write(row)
         else:
             variant = row.split()
+            # The eight column is the INFO tag, containing the annotations
             info = variant[7].split(';')
             refgene = filter(lambda x: 'Gene.refGene=' in x, info)
             genelist = refgene[0].split('=')
@@ -61,8 +62,10 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout):
             variant[7] = ';'.join(info)
             output.write("\t".join(variant) + "\n")
             variants += 1
-        if i % 1000 == 0:
-            sys.stderr.write("Done with {0} lines...\n".format(i))
+        if progress:
+            if i % 4000 == 0:
+                if i != 0:
+                    sys.stderr.write("VCF manipulator done with {0} lines ({1})...\n".format(i, annotation))
     sys.stderr.write("Finished VCF manipulator with '{0}' annotation...\n".format(annotation))
 
 

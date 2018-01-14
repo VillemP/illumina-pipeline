@@ -305,7 +305,6 @@ def create_excel(name, files, filterset=None, postprocess_list=None, formats_lis
     finally:
         print ("Closing excel file...")
         wbook.close()
-        print ("Finished!")
 
 
 if __name__ == "__main__":

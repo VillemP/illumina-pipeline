@@ -20,7 +20,8 @@ from TrusightOne.jsonhandler import JsonHandler
 from TrusightOne.tso_excel_filters import TruesightOneFilters
 from TrusightOne.tso_excel_filters import TruesightOneFormats
 from TrusightOne.tso_excel_filters import TruesightOnePostprocess
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, converthgnc
+from pipeline_utility.converthgnc import HgncConverter
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
 try:
@@ -186,7 +187,7 @@ def genderCheck(args, samples):
     for sample in samples:
         vcflist = vcflist + "--variant:{0} {1}\\".format(sample.name, sample.vcflocation)
         # print vcflist
-    if not args.test:
+    if not args.testmode:
         args = shlex.split('java -Xmx10g -jar {0} '
                            '-T CombineVariants '
                            '-R {1} \\'
@@ -212,9 +213,15 @@ def genderCheck(args, samples):
         proc.wait()
 
 
-def annotate(sample, testmode):
+def convert_to_hgnc(converter, infile, outfile, args):
+    print("Converting VCF gene names to HGNC names. Unknown gene symbols will be preserved.")
+    converter.convert(infile, outfile, True)
+
+
+def annotate(sample, args, converter):
     """
 
+    :param converter:
     :type sample: pipeline_utility.sample as sample
     """
     print("Starting annotation for file: {0}".format(sample.name))
@@ -228,10 +235,10 @@ def annotate(sample, testmode):
             tempfile.file.write(line + "\n")
         tempfile.file.seek(0)
 
-        if not testmode:
+        if not args.testmode:
             sample.reduced_variants_vcf = sample.vcflocation
 
-            args = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
+            annotation = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
                                '-out "{3}" '
                                "-remove -protocol "
                                "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
@@ -244,7 +251,7 @@ def annotate(sample, testmode):
                                                   sample.name))
 
             print(args)
-            proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(annotation, shell=False, stderr=subprocess.PIPE)
             with proc.stderr:
                 # logdata(proc.stderr)
                 pass
@@ -252,13 +259,16 @@ def annotate(sample, testmode):
 
             proc.wait()
 
-        # annotator output file --> add custom and external gene name based
+        # annotator output file --> add custom and external gene name based annotations
+        # (if VARIANT.refGene == SYMBOL, insert custom_list[SYMBOL]=...) (vcfmanipulator)
         disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
         disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
         hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
         panels = os.path.join(config.custom_annotation_dir, "TSO_genepanels.txt")
 
         # Add extra annotations to the VCF
+        args_0 = shlex.shlex("{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--hgnc "
+                                                          + config.hgncPath, "--input -", "--output -", "--progress"))
         args_1 = shlex.shlex(
             "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
         args_2 = shlex.shlex(
@@ -281,7 +291,7 @@ def annotate(sample, testmode):
                              'CLNDSDB CLNDSDBID '
                              'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                              .format(config.snpsift))
-        if testmode:
+        if args.testmode:
             total_samples = 3
             db_name_samples = db_name_samples + str(total_samples)
         # Splits the last column (allele 1 depth, allele 2 depth into 3 columns:
@@ -293,14 +303,15 @@ def annotate(sample, testmode):
                                                                           db_name_samples),
                                                              total_samples))
         # This approach retains quotation marks and complete whitespace delimited args
-        slx = list([args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
+        slx = list([args_0, args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
         for arg in slx:
             arg.whitespace_split = True
 
         # try:
         with open(sample.name + ".hg19_multianno.vcf") as annotated:
-            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=annotated, stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE)
+            proc_0 = subprocess.Popen([a for a in args_0], shell=False, stdin=annotated, stdout=subprocess.PIPE)
+            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE)
             proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE)
             proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
@@ -340,7 +351,7 @@ def annotate(sample, testmode):
                 print(pid, line)
             for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
                 processes.append(proc)
-                #jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
+                # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
 
 
 def calc_coverage(sample):
@@ -514,17 +525,20 @@ def run_samples(args, sample_list):
     if args.gendercheck:
         genderCheck(args, samples)
     getGeneOrder(samples, args)
+    if args.annotate:
+        converter = HgncConverter(config.hgncPath)
     # DB is already updated
     if not args.old:
-        update_database(samples, args.no_replace, args.test)
+        update_database(samples, args.no_replace, args.testmode)
     for sample in samples:
         try:
             if args.annotate:
-                annotate(sample, args.test)
+                annotate(sample, args, converter)
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
                 sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+                sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
                 sample.trash.append(sample.genes_tempfile.name)
             if args.coverage:
                 calc_coverage(sample)
@@ -605,7 +619,7 @@ def main(args):
         prefixes, vcfslist, bamlist = create_configs()
         for i in range(0, len(prefixes)):
             samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
-        update_database(samples, args.no_replace, args.test)
+        update_database(samples, args.no_replace, args.testmode)
     elif args.samples:
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
         run_samples(args, args.samples)
@@ -630,7 +644,7 @@ def main(args):
                           "Do you wish to continue {1} or not {2}: "
                           .format(config.custom_annotation_dir, yesChoice, noChoice)).lower()
         if input in yesChoice:
-            db_update.update_all(config.custom_annotation_dir, args.test)
+            db_update.update_all(config.custom_annotation_dir, args.testmode)
         elif input in noChoice:
             print("Quitting...")
 
@@ -741,7 +755,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--coverage", help="Calculates the coverage tables for the sample's order and adds it to "
                                                  "the output excel file new pages.",
                         action="store_true", default=False)
-    parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
+    parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
                                              "expects the DB to exist.",
                         action="store_true", default=False)
     parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
