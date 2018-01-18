@@ -98,7 +98,7 @@ def find_gene(name):
     which is also converted to HGNC if possible. Thus returns a gene regardless of the original
     name and the synonym it was searched with.
     :param name: Gene symbol
-    :return: General TSO gene object match or None
+    :return: gene.Gene | None
     """
     hgnc = hgnc_genes.get(name, None)
     # HGNC is None -> might be a synonym

@@ -378,7 +378,9 @@ def run_samples(args, sample_list):
             else:
                 print("Could not finish sample {0}".format(sample))
                 unfinished_samples.append(sample)
+    print("-" * 40)
     print("Annotated {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
+    print("-" * 40)
     for sample in samples:
         print(sample)
     if len(unfinished_samples) > 0:

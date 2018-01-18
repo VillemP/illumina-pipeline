@@ -322,23 +322,23 @@ def annotate(sample, args, converter):
             proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
                                                shell=False, stdin=proc_4.stdout,
                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
+            proc_6 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # Proc 6 takes in a table
-            proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout, stdout=subprocess.PIPE,
+            proc_7 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE)
-            proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
+            proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
 
             with open(sample.name + ".annotated.table", "w+") as table:
-                table.write(proc_7.communicate()[0])
+                table.write(proc_8.communicate()[0])
                 sample.table_files.append(os.path.abspath(table.name))
-                if proc_7.returncode == 0:
+                if proc_8.returncode == 0:
                     sample.annotated = True
                     print("Finished annotating sample {0}".format(sample.name))
                     print(sample)
             jobs = multiprocessing.Pool(8)
             q = multiprocessing.Queue()
-            # t = Thread(target=async_log, args=(proc_7.stdout, q))
+            # t = Thread(target=async_log, args=(proc_8.stdout, q))
             # t.daemon = True
             # t.start()
 
@@ -349,7 +349,7 @@ def annotate(sample, args, converter):
                 pass
             else:  # got line
                 print(pid, line)
-            for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_5, proc_6, proc_7):
+            for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
                 processes.append(proc)
                 # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
 
@@ -577,7 +577,9 @@ def run_samples(args, sample_list):
             traceback.print_exc(file=sys.stderr)
             raise error
             # TODO: Run conifer for the whole batch
+    print("-" * 40)
     print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+    print("-" * 40)
     if len(unfinished_samples) > 0:
         for sample in unfinished_samples:
             print("{0} is unfinished. Check for errors.".format(sample))
@@ -663,8 +665,8 @@ def main(args):
 
                 result = TrusightOne.gene.find_gene(inp)
                 if result is not None:
-                    print("Gene is covered on TSO.\n"
-                          "HGNC symbol: {0}".format(result))
+                    print("Gene is covered on TSO as {1}.\n"
+                          "HGNC symbol: {0}".format(result, result._name))
                 else:
                     # Is it a panel?
                     result = TrusightOne.gene_panel.match_order_to_panels(inp, combinedpanels, handler)
