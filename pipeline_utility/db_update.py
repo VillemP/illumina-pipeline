@@ -132,8 +132,15 @@ handler = AnnotationHandler(cfg)
 
 
 def _update_db(annotationFolder, externalFilename, outfile, downloadedFiles, splithook):
-    match = [f for f in downloadedFiles if f.strip() ==
-             os.path.join(cfg.directory, externalFilename)]
+    if type(downloadedFiles) is str:
+        match = downloadedFiles.strip()  # We only downloaded one file, no need to find it amongs others
+        assert match == os.path.join(cfg.directory, externalFilename), \
+            "The downloaded file did not match the expected file name"
+    else:
+        match = [f for f in downloadedFiles if f.strip() ==
+                 os.path.join(cfg.directory, externalFilename)]
+        if len(match) > 0:
+            match = match[0]  # Convert the list with 1 element into a single string
     if len(match) > 0:
         newfile = os.path.join(annotationFolder, outfile)
         oldfile = os.path.join(annotationFolder, outfile + ".bak")
@@ -141,8 +148,8 @@ def _update_db(annotationFolder, externalFilename, outfile, downloadedFiles, spl
         if os.path.exists(newfile):
             print "Creating backup: {0}".format(oldfile)
             os.rename(newfile, oldfile)
-        if os.path.exists(match[0]):
-            genes_to_phenotypes = match[0]
+        if os.path.exists(match):
+            genes_to_phenotypes = match
             splithook(genes_to_phenotypes, newfile)
             newlen = file_utility.file_len(newfile)
             newgenes = file_utility.count_unique_names(newfile, 0)
@@ -150,7 +157,7 @@ def _update_db(annotationFolder, externalFilename, outfile, downloadedFiles, spl
             oldlen = file_utility.file_len(oldfile)
             oldgenes = file_utility.count_unique_names(oldfile, 0)
             print("New {0} file contains {1} lines for {2} unique gene symbols.\n"
-                  "The old file is saved as a backup in {3} and contained {4} lines for {5} unique genes.".
+                  "The old file is saved as a backup in {3} and contained {4} lines for {5} unique keys (usually genes).".
                   format(newfile, newlen, newgenes, oldfile, oldlen, oldgenes))
     else:
         print("ERROR: The update could not be started for {0}".format(outfile))
