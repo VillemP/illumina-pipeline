@@ -1,4 +1,4 @@
-This software uses third party toolkits such as GATK (https://software.broadinstitute.org/gatk/) and annotators to provide annotated variant files from Burrows-Wheeler aligned human NGS data sequenced with Illumina sequencers such as Illumina Miniseq, NextSeq and HiSeq.
+This software uses third party toolkits such as GATK (https://software.broadinstitute.org/gatk/) and ANNOVAR annotators to provide annotated variant files from Burrows-Wheeler aligned human NGS data sequenced with Illumina sequencers such as Illumina Miniseq, NextSeq and HiSeq on TrusightOne and TrusightCancer panels, although other panels can be used.
 
 This is an open source program (licensed GNU GPL v.3.0) designed to run on UNIX systems (tested on Ubuntu). All third party toolkits must be installed manually. The program takes in Illumina NGS sequence reads in BAM format and variant files in VCF format.
 
