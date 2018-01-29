@@ -639,7 +639,9 @@ def main(args):
                     print("Loading and writing panel tables instead...")
                     combinedpanels.write_table()
             except KeyboardInterrupt:
-                print("Exiting")
+                print("Exiting...")
+                break
+
     elif args.update:
         input = raw_input("WARNING: You are about to download the OMIM and HPO terms."
                           " The updated files will be downloaded to {0}.\n"

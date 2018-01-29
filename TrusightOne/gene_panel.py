@@ -9,6 +9,7 @@ from pipeline_utility.txttoxlsx_filtered import create_excel
 
 genesdict = {}
 
+
 class GenePanel(object):
     def __init__(self, panel_json, config=None):
         self.name = replace_illegal_chars(panel_json['Name'])
@@ -32,12 +33,14 @@ class GenePanel(object):
             # else:
             g = Gene(self, gene)
             self.genes.append(g)
-            #genesdict[gene['GeneSymbol']] = g
-
+            # genesdict[gene['GeneSymbol']] = g
 
     def __str__(self):
-        return "Name={0}, Id={1}, Version={2}, Total genes={3}" \
-            .format(self.name, self.id, self.version, len(self.genes))
+        return "Name={0}, Id={1}, Version={2}, Total genes={3}, Covered genes={4}" \
+            .format(self.name, self.id, self.version, len(self.genes), len(self.tso_genes))
+
+    def contains_gene(self, gene):
+        return [g for g in self.genes if g.name == gene]
 
     @property
     def tso_genes(self):
@@ -171,16 +174,20 @@ class CombinedPanels(dict):
                                        if panel.id == '588728f38f62030cf7152165']
 
     def __getitem__(self, item):
-        return super(CombinedPanels, self).__getitem__([key for key in self.iterkeys() if item == key][0])
+        return super(CombinedPanels, self).__getitem__(
+            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
 
     def __delitem__(self, item):
-        return super(CombinedPanels, self).__delitem__([key for key in self.iterkeys() if item == key][0])
+        return super(CombinedPanels, self).__delitem__(
+            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
 
     def get(self, item, default=None):
-        return super(CombinedPanels, self).get([key for key in self.iterkeys() if item == key][0], default)
+        return super(CombinedPanels, self).get(
+            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0], default)
 
     def __contains__(self, item):
-        return super(CombinedPanels, self).__contains__([key for key in self.iterkeys() if item == key][0])
+        return super(CombinedPanels, self).__contains__(
+            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
 
     def table(self):
         lines = list()
