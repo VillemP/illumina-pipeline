@@ -113,15 +113,15 @@ class CombinedPanels(dict):
         super(CombinedPanels, self).__init__([])
         self.handler = handler
         if len(handler.panels) > 0:
-            unknown_panel = GenePanel({'Name': 'ALL', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
-                                       'DiseaseSubGroup': 'None', 'CurrentVersion': '1.2'})
+            all_genes_panel = GenePanel({'Name': 'All covered genes', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
+                                         'DiseaseSubGroup': 'None', 'CurrentVersion': '1.3'})
             if len(gene.hgnc_genes) == 0:
                 gene.load_hgnc_genes(handler.config.hgncPath)
             if len(gene.tso_genes) == 0:
                 gene.load_tso_genes(handler.config.tsoGenes)
-            unknown_panel.genes = gene.tso_genes
-            handler.panels.append(unknown_panel)
-            self[('ALL')] = [panel for panel in handler.panels if panel.id == '0000']
+            all_genes_panel.genes = gene.tso_genes
+            handler.panels.append(all_genes_panel)
+            self[('ALL', 'KOGU')] = [panel for panel in handler.panels if panel.id == '0000']
             self[('VAM', 'ID', 'Intellectual disability')] = [panel for panel in handler.panels
                                                               if panel.name == "Intellectual disability"
                                                               and panel.id == '558aa423bb5a16630e15b63c']

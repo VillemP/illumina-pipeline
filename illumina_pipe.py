@@ -239,16 +239,17 @@ def annotate(sample, args, converter):
             sample.reduced_variants_vcf = sample.vcflocation
 
             annotation = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
-                               '-out "{3}" '
-                               "-remove -protocol "
-                               "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
-                               "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                               "-operation g,f,f,f,f,f,f "
-                               "-nastring . "
-                               "-otherinfo "
-                               "-vcfinput".format(config.annotator, sample.reduced_variants_vcf.replace(" ", "\\ "),
-                                                  config.annotation_db,
-                                                  sample.name))
+                                     '-out "{3}" '
+                                     "-remove -protocol "
+                                     "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
+                                     "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                     "-operation g,f,f,f,f,f,f "
+                                     "-nastring . "
+                                     "-otherinfo "
+                                     "-vcfinput".format(config.annotator,
+                                                        sample.reduced_variants_vcf.replace(" ", "\\ "),
+                                                        config.annotation_db,
+                                                        sample.name))
 
             print(args)
             proc = subprocess.Popen(annotation, shell=False, stderr=subprocess.PIPE)
@@ -588,6 +589,44 @@ def run_samples(args, sample_list):
     sortlog(config.logfile)
 
 
+def query_symbol(symbol_list):
+    for inp in symbol_list:
+        synonyms = TrusightOne.gene.find_synonyms(inp)
+        print("'{0}' is HGNC declared symbol: {1}".format(inp, TrusightOne.gene.is_hgnc(inp)))
+        if len(synonyms) > 0:
+            print("HGNC synonyms for {0}: {1}".format(inp, synonyms))
+
+        result = TrusightOne.gene.find_gene(inp)
+        if result is not None:
+            print("Gene is covered on TSO as {1}.\n"
+                  "HGNC symbol: {0}".format(result, result._name))
+        else:
+            # Is it a panel?
+            result = TrusightOne.gene_panel.match_order_to_panels(inp, combinedpanels, handler)
+            if type(result) is list:
+                if len(result) > 0:
+                    print("Found a panel match for input '{0}'!".format(inp))
+                    total_genes = {}
+                    for match in result:
+                        for g in match.tso_genes:
+                            total_genes[g.name] = g
+                    print("Genes in combined panel: {0}".format(len(total_genes)))
+                    for match in result:
+                        print(match)
+                        for gene in match.tso_genes:
+                            # print("{0}\t{1}".format(gene, gene.coverage))
+                            pass
+
+                else:
+                    print ("No match found for '{0}'".format(inp))
+            else:
+                print("Found a panel match for input '{0}'!".format(inp))
+                print(result)
+                for gene in result.tso_genes:
+                    print("{0}\t{1}".format(gene, gene.coverage))
+        print("-" * 40)
+
+
 def main(args):
     print("Running TSO pipeline tool with {0}".format(args))
     global combinedpanels
@@ -652,42 +691,20 @@ def main(args):
         elif input in noChoice:
             print("Quitting...")
 
-    elif args.search:
+    elif args.search is not None:
         try:
             print("TSO PIPELINE GENE TOOL")
             print("-" * 40)
             print("Input the gene name or panel name/panel tag (MITO, etc)/panel id code (PanelApp) to find "
                   "if it is covered TSO or return the genes from the panel that are covered on TSO.")
+            if len(args.search) > 0:
+                query = args.search
+                query_symbol([query])
+
             while True:
-                inp = raw_input("Input (case-sensitive) [Ctrl+C to exit]: \n")
-                synonyms = TrusightOne.gene.find_synonyms(inp)
-                print("'{0}' is HGNC declared symbol: {1}".format(inp, TrusightOne.gene.is_hgnc(inp)))
-                if len(synonyms) > 0:
-                    print("HGNC synonyms for {0}: {1}".format(inp, synonyms))
-
-                result = TrusightOne.gene.find_gene(inp)
-                if result is not None:
-                    print("Gene is covered on TSO as {1}.\n"
-                          "HGNC symbol: {0}".format(result, result._name))
-                else:
-                    # Is it a panel?
-                    result = TrusightOne.gene_panel.match_order_to_panels(inp, combinedpanels, handler)
-                    if type(result) is list:
-                        if len(result) > 0:
-                            print("Found a panel match for input '{0}'!".format(inp))
-                            for match in result:
-                                print(match)
-                                for gene in match.tso_genes:
-                                    print("{0}\t{1}".format(gene, gene.coverage))
-
-                        else:
-                            print ("No match found for '{0}'".format(inp))
-                    else:
-                        print("Found a panel match for input '{0}'!".format(inp))
-                        print(result)
-                        for gene in result.tso_genes:
-                            print("{0}\t{1}".format(gene, gene.coverage))
-                print("-" * 40)
+                query = raw_input("Input (case-sensitive) [Ctrl+C to exit]: \n")
+                query = query.split(",")
+                query_symbol(query)
         except KeyboardInterrupt:
             print("Exiting...")
     else:
@@ -732,7 +749,7 @@ if __name__ == "__main__":
                             "(version 1.0 and upper) and/or table of combined panels.")
     group.add_argument("-u", "--update", action="store_true", default=False,
                        help="Updates the custom annotations for HPO, OMIM terms.")
-    group.add_argument("-m", "--search", action="store_true", default=False,
+    group.add_argument("-m", "--search", action="store", nargs="?", type=str, const="",
                        help="The gene tool is a tool to help search for genes and panels covered by Truesight One "
                             "from custom panels, PanelApp panels and HGNC gene symbols.")
     parser.add_argument("-p", "--panels", type=argparse.FileType('r'),
@@ -760,7 +777,7 @@ if __name__ == "__main__":
                                                  "the output excel file new pages.",
                         action="store_true", default=False)
     parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
-                                             "expects the DB to exist.",
+                                                 "expects the DB to exist.",
                         action="store_true", default=False)
     parser.add_argument("-k", "--keep", help="Keep intermediary annotation and coverage files.",
                         action="store_true", default=False)
