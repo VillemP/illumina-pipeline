@@ -67,6 +67,12 @@ def update_vcf_list(vcfs_list):
     global db_name_samples
     global total_samples
 
+    try:
+        os.makedirs(config.db_directory)
+    except OSError:
+        if not os.path.isdir(config.db_directory):
+            raise
+
     with open(config.db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
 

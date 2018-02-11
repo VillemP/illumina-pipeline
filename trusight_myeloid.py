@@ -4,12 +4,11 @@ import shlex
 import subprocess
 import sys
 
-import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
 from miniseq.miniseq_excel_filters import MiniseqFilters, MiniseqPostprocess, MiniseqFormats
-from miniseq.miniseqconfig import MiniseqConfig
+from miniseq.myeloidconfig import MyeloidConfig
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
@@ -20,15 +19,15 @@ except:
 
 processes = []
 # Location of the cfg file is in the same folder as this script
-cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'miniseq.yaml')
-config = MiniseqConfig(cfg_path)
+cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tsm.yaml')
+config = MyeloidConfig(cfg_path)
 config = config.load()
 total_samples = 0
 db_name_samples = config.db_name  # Updated later with current samples name
 workingDir = os.getcwd()
 project = os.path.basename(os.path.normpath(workingDir))
 
-assert os.path.exists(config.annotator)
+assert os.path.exists(config.annotator), "Did you fill out your config fields correctly?"
 
 
 def logdata(stdout):
@@ -40,32 +39,15 @@ def logdata(stdout):
             print ("{}".format(line.rstrip()))
 
 
-# deprecated, used with --old
-def create_configs():
-    prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-    vcflist = pipeline_utility.file_utility.write_vcfs_list(workingDir, "vcfs.list")
-    bamlist = pipeline_utility.file_utility.write_bams_list(workingDir, "bams.list")
-
-    if miniseq.configvalidator.validate_config("bams.list", "vcfs.list", "prefixes.list"):
-        return prefixes, vcflist, bamlist
-    else:
-        raise IOError("Database updating failed due to incorrect files.")
-
-
-# deprecated, used with --old
-def create_arguments_file(dbnr):
-    with open("arguments.txt", "wb+") as f:
-        f.write("wd:\n")
-        f.write(workingDir + "\n")
-        f.write("dbname:\n")
-        f.write(dbnr + "\n")
-        f.write("project:\n")
-        f.write(project)
-
-
 def update_vcf_list(vcfs_list):
     global db_name_samples
     global total_samples
+
+    try:
+        os.makedirs(config.db_directory)
+    except OSError:
+        if not os.path.isdir(config.db_directory):
+            raise
 
     with open(config.db_vcf_dir, "a+") as db_vcfs:
         data = db_vcfs.readlines()
@@ -85,7 +67,7 @@ def update_vcf_list(vcfs_list):
                 skipped += 1
     total_samples = curr_len + i
     db_name_samples = db_name_samples + str(total_samples)
-    create_arguments_file(str(total_samples))
+
     print ("Updated {0} with {1} unique samples. "
            "Skipped {2} preexisting samples. New database name is {3}.").format(
         os.path.join(config.db_directory, config.db_vcf_list_name), i, skipped, db_name_samples)
@@ -137,8 +119,11 @@ def update_database(samples, replace, testmode):
     if not testmode:
         assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
         vcfslist = list()
+        idxlist = list()
         for sample in samples:
             vcfslist.append(sample.vcflocation)
+            idxlist.append(sample.vcflocation + ".tbi")
+        copied_idx, skipped_idx = pipeline_utility.file_utility.copy_vcf(idxlist, config.vcf_storage_location, replace)
         copied, skipped = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
         updated, skip = update_vcf_list(vcfslist)
         if copied + updated > 0:
@@ -147,37 +132,14 @@ def update_database(samples, replace, testmode):
     pass
 
 
-def annotate(sample, testmode):
+def annotate(sample, args):
     print("Starting annotation for file: {0}".format(sample.name))
     global total_samples
     global db_name_samples
     # Reduce the amount of variants to work with
-    if not testmode:
-        outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
-        args = shlex.split("java -Xmx10g -jar {0} "
-                           "-T SelectVariants "
-                           "-R {1} "
-                           "-V {2} "
-                           "-L {3} "
-                           "-o {4} "
-                           "-ip {5}".format(config.toolkit, config.reference,
-                                            sample.vcflocation, config.targetfile,
-                                            outfile, config.padding))
+    if not args.testmode:
 
-        proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
-        processes.append(proc)
-
-        with proc.stderr:
-            logdata(proc.stderr)
-        processes.append(proc)
-
-        proc.wait()
-        if proc.returncode == 0:
-            sample.reduced_variants_vcf = outfile
-        else:
-            sample.error = True
-
-        args = shlex.split("perl {0} {1} {2} -buildver hg19 "
+        annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                            "-out {3} "
                            "-remove -protocol "
                            "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
@@ -185,9 +147,10 @@ def annotate(sample, testmode):
                            "-operation g,f,f,f,f,f,f "
                            "-nastring . "
                            "-otherinfo "
-                           "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
+                                    "-vcfinput".format(config.annotator, sample.vcflocation, config.annotation_db,
+                                                       sample.name))
         if not sample.error:
-            proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(annotate_args, shell=False, stderr=subprocess.PIPE)
             with proc.stderr:
                 logdata(proc.stderr)
             processes.append(proc)
@@ -217,7 +180,7 @@ def annotate(sample, testmode):
                          'CLNDSDB CLNDSDBID '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
-    if testmode:
+    if args.testmode:
         total_samples = 1
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
     args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
@@ -290,22 +253,23 @@ def calc_coverage(sample):
                              '--showFiltered '.format(config.toolkit, config.reference,
                                                       os.path.join(path, sample.name + ".diagnoseTargets")))
     depth = subprocess.Popen(depth_args, shell=False)
-    diagnose = subprocess.Popen(diagnose_args, shell=False)
-    table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
-    diagnose.wait()
+    # diagnose = subprocess.Popen(diagnose_args, shell=False)
+    # table_name = os.path.join(path, sample.name + ".diagnoseTargets.table")
+    # diagnose.wait()
     depth.wait()
     # to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
-    with open(table_name, "wb+") as f:
-        # f.write(to_table.communicate()[0])
-        pass
+    # with open(table_name, "wb+") as f:
+    # f.write(to_table.communicate()[0])
+    #    pass
 
     # with to_table.stderr:
     #    logdata(to_table.stderr)
 
-    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                           sample.name + '.requested.sample_summary')))
-    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                           sample.name + '.requested.sample_gene_summary')))
+    if depth.returncode == 0:
+        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                               sample.name + '.requested.sample_summary')))
+        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                               sample.name + '.requested.sample_gene_summary')))
 
 
 def create_excel_table(sample):
@@ -314,6 +278,7 @@ def create_excel_table(sample):
     formats = MiniseqFormats(sample.table_files)
     if sample.annotated:
         create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
+        sample.finished = True
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -324,7 +289,7 @@ def run_samples(args, sample_list):
     finished_samples = []
     unfinished_samples = []
     for sample in sample_list:
-        location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf")[1]
+        location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf.gz")[1]
         bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")[1]
         try:
             samp = pipeline_utility.sample.Sample(sample, location, bamlocation)
@@ -338,44 +303,45 @@ def run_samples(args, sample_list):
     print("Found {0} samples:".format(len(samples)))
     for sample in samples:
         print(sample)
-    update_database(samples, args.no_replace, args.test)
+    update_database(samples, args.no_replace, args.testmode)
     for sample in samples:
-        if not args.test:
-            annotate(sample, args.test)
-            if not sample.error:
-                calc_coverage(sample)
-                create_excel_table(sample)
-            if not args.keep and sample.annotated:
-                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".requested.sample_cumulative_coverage_counts"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".requested.sample_cumulative_coverage_proportions"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".requested.sample_interval_statistics"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".requested.sample_statistics"))
+        if args.annotate:
+            annotate(sample, args)
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
+        if args.coverage:
+            calc_coverage(sample)
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_counts"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_proportions"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_interval_statistics"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_statistics"))
+        create_excel_table(sample)
 
-                for trashfile in sample.trash:
-                    try:
-                        os.remove(trashfile)
-                    # The file might've been already deleted or did not exist in the first place.
-                    except(OSError) as oserror:
-                        sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror))
-                    finally:
-                        if sample.annotated:
-                            sample.finished = True
+        # Delete the intermediary files, unnecessary files and files that have already been inserted
+        # into the output file.
+        if not args.keep:
+            for trashfile in sample.trash:
+                try:
+                    os.remove(trashfile)
+                # The file might've been already deleted or did not exist in the first place.
+                except(OSError) as oserror:
+                    sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
 
-            if sample.finished and not sample.error:
-                print("Finished sample {0}".format(sample.name))
-                finished_samples.append(sample)
-            else:
-                print("Could not finish sample {0}".format(sample))
-                unfinished_samples.append(sample)
+        if sample.finished:
+            print("Finished sample {0}".format(sample.name))
+            finished_samples.append(sample)
+        else:
+            print("Could not finish sample {0}".format(sample))
+            unfinished_samples.append(sample)
+
     print("-" * 40)
     print("Annotated {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
     print("-" * 40)
@@ -401,20 +367,16 @@ def main(args):
         # prefixes, vcfslist, bamlist = create_configs()
         # for i in range(0, len(prefixes)):
         #    samp = Sample(prefixes[i], vcfslist[i], bamlist[i])
-        prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-        run_samples(args, prefixes)
+        prefixes = pipeline_utility.file_utility.find_prefixes(workingDir, "vcf.gz")
+        if prefixes is not None:
+            run_samples(args, prefixes)
 
-    elif args.old:
-        prefixes, vcfslist, bamlist = create_configs()
-        for i in range(0, len(prefixes)):
-            samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
-        update_database(samples, args.no_replace, args.test)
     elif args.samples:
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
         run_samples(args, args.samples)
     else:
         print "No valid command input."
-        print "Printing cfg values."
+        print "Printing config values (including hidden variables)."
         print config
 
 
@@ -431,19 +393,24 @@ if __name__ == "__main__":
                                 "-s E0000001 E000002 E0000003 which are to be run through the pipeline. "
                                 "Will only run if samples have a matching vcf and bam file.",
                            action="store", nargs='+', type=str)
-        group.add_argument("-o", "--old", help="Creates text based config files for shell scripts. "
-                                               "Automatically updates the variant database.",
-                           action="store_true")
+
         parser.add_argument("-r", "--no_replace",
                             help="Will skip copying the VCF file to the VCF directory specified in the config file"
                                  " (don't overwrite VCF in the DB)."
                                  "Useful in a test scenario when running large batches repeatedly or if the VCF is "
                                  "not supposed to be inserted into the DB.",
                             action="store_false", default=True)
-        parser.add_argument("-t", "--test", help="Skips the variant DB recompilation (CombineVariants) step, "
-                                                 "expects the DB to exist..",
+        parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
+                                                     "expects the DB to exist.",
                             action="store_true", default=False)
         parser.add_argument("-k", "--keep", help="Keep intermediary annotation files.",
+                            action="store_true", default=False)
+        parser.add_argument("-a", "--annotate", default=False, action="store_true",
+                            help="The output will contain a table with the annotated variants. "
+                                 "Run this explicitly for annotations")
+        parser.add_argument("-c", "--coverage",
+                            help="Calculates the coverage tables for the sample's order and adds it to "
+                                 "the output excel file new pages.",
                             action="store_true", default=False)
 
         args = parser.parse_args()

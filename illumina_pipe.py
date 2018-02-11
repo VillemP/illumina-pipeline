@@ -102,6 +102,12 @@ def update_vcf_list(vcfs_list):
     global db_name_samples
     global total_samples
 
+    try:
+        os.makedirs(config.db_directory)
+    except OSError:
+        if not os.path.isdir(config.db_directory):
+            raise
+
     # If the file doesn't exist (on first run, the length is automatically 0)
     if os.path.exists(config.db_vcf_dir):
         curr_len = pipeline_utility.file_utility.file_len(config.db_vcf_dir)
@@ -414,10 +420,11 @@ def calc_coverage(sample):
     depth.wait()
     # to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
 
-    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                           sample.name + '.requested.sample_summary')))
-    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                           sample.name + '.requested.sample_gene_summary')))
+    if depth.returncode == 0:
+        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                               sample.name + '.requested.sample_summary')))
+        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                               sample.name + '.requested.sample_gene_summary')))
 
 
 def create_excel_table(sample):

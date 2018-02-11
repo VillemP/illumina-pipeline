@@ -88,6 +88,25 @@ def find_bams(dir):
     return find_filetype(dir, '.bam')
 
 
+def find_prefixes(dir, extension):
+    """
+    Finds a list of prefixes with a given file extension e.g. E00001.vcf.gz --> E00001 in a directory
+
+    :param dir: Directory to search in.
+    :param extension: File extension string, must not include the seperator '.' ("vcf" or "vcf.gz" not ".vcf")
+    """
+    samples = find_filetype(dir, extension)
+    clean_prefixes = list()
+    for prefix in samples:
+        prefix_clean = prefix[0].rsplit(".")
+        # We only want exact matches, so E00001.genome.vcf.gz would be skipped
+        # This tiny math ensures that long extensions don't confuse us.
+        if len(prefix_clean) < 2 + len(extension.split(".")):
+            prefix_clean = prefix_clean[0]
+            clean_prefixes.append(prefix_clean)
+    return clean_prefixes
+
+
 def write_prefixes_list(dir, output):
     samples = find_vcfs(dir)
     samples.sort(key=lambda pair: pair[0])
@@ -100,7 +119,6 @@ def write_prefixes_list(dir, output):
                 prefix_clean = prefix_clean[0]
                 prefixes.write(prefix_clean + "\n")
                 clean_prefixes.append(prefix_clean)
-
 
             else:
                 pass
@@ -118,7 +136,11 @@ def write_bams_list(dir, output):
 
 
 def copy_vcf(files, dest, overwrite=False):
-    assert os.path.exists(dest), "Destination {} does not exist!".format(dest)
+    try:
+        os.makedirs(dest)
+    except OSError:
+        if not os.path.isdir(dest):
+            raise
     nr = len(files)
     i = 0
     skipped = 0
