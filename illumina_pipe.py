@@ -179,7 +179,8 @@ def update_database(samples, replace, testmode):
         vcfslist = list()
         for sample in samples:
             vcfslist.append(sample.vcflocation)
-        copied, skipped = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
+        copied, renamed, not_found = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location,
+                                                                            replace)
         updated, skip = update_vcf_list(vcfslist)
         if copied + updated > 0:
             # If there were any variant files updated (copied) or

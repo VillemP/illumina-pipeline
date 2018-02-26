@@ -135,6 +135,12 @@ def write_bams_list(dir, output):
     return write_filelist(dir, output, find_bams(dir))
 
 
+def rename_file_idx(name_path, idx):
+    basename = os.path.basename(name_path).split(".")
+    basename[0] = basename[0] + "_re" + str(idx)
+    new_name = ".".join(basename)
+    return new_name
+
 def copy_vcf(files, dest, overwrite=False):
     try:
         os.makedirs(dest)
@@ -142,8 +148,9 @@ def copy_vcf(files, dest, overwrite=False):
         if not os.path.isdir(dest):
             raise
     nr = len(files)
-    i = 0
-    skipped = 0
+    unique_copied = []
+    renamed = []
+    not_found = []
 
     print("Starting copying of {0} files to destination folder {1}".format(nr, dest))
 
@@ -152,14 +159,22 @@ def copy_vcf(files, dest, overwrite=False):
         if not os.path.isfile(os.path.join(dest, os.path.basename(path))) or overwrite:
             if os.path.isfile(path):
                 shutil.copy(path, dest)
-                i += 1
+                fname = os.path.join(dest, os.path.basename(path))
+                unique_copied.append(fname)
             else:
                 print "File does not exist: " + str(path)
-                skipped += 1
+                not_found.append(str(path))
         else:
-            skipped += 1
-    print("Finished copying of {0} files. Skipped {1} files. ".format(i, skipped))
-    return i, skipped
+            re_idx = 1
+
+            while os.path.isfile(os.path.join(dest, rename_file_idx(path, re_idx))):
+                re_idx += 1
+            fname = rename_file_idx(path, re_idx)
+            shutil.copy(path, os.path.join(dest, fname))
+
+            renamed.append(os.path.join(dest, fname))
+    print("Finished copying of {0} files. Renamed {1} files. ".format(len(unique_copied), len(renamed)))
+    return unique_copied, renamed, not_found
 
 
 def file_len(fname):

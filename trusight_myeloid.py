@@ -9,7 +9,7 @@ import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
 from miniseq.myeloid_excel_filters import MyeloidFilters, MyeloidFormats, MyeloidPostprocess
 from miniseq.myeloidconfig import MyeloidConfig
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, local_db_tool
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
 try:
@@ -39,42 +39,13 @@ def logdata(stdout):
             print ("{}".format(line.rstrip()))
 
 
-def update_vcf_list(vcfs_list):
+# This function is used as a signature that is called later to update the global vars in this module.
+def update_sample_stats(dns, ts):
     global db_name_samples
     global total_samples
 
-    try:
-        os.makedirs(config.db_directory)
-    except OSError:
-        if not os.path.isdir(config.db_directory):
-            raise
-
-    with open(config.db_vcf_dir, "a+") as db_vcfs:
-        data = db_vcfs.readlines()
-
-        curr_len = pipeline_utility.file_utility.file_len(config.db_vcf_dir)
-
-        i = 0
-        skipped = 0
-        for vcf in vcfs_list:
-            name = os.path.basename(vcf).rsplit('.')[0]
-            if not any(name in x.rstrip() for x in data):
-                line = "V:{0} {1}".format(name, os.path.join(config.vcf_storage_location,
-                                                             os.path.basename(vcf)))
-                i += 1
-                db_vcfs.write(line + "\n")
-            else:
-                line = "V:{0}_re {1}".format(name, os.path.join(config.vcf_storage_location,
-                                                                os.path.basename(vcf)))
-                i += 1
-                db_vcfs.write(line + "\n")
-    total_samples = curr_len + i
-    db_name_samples = db_name_samples + str(total_samples)
-
-    print ("Updated {0} with {1} unique samples. "
-           "Skipped {2} preexisting samples. New database name is {3}.").format(
-        os.path.join(config.db_directory, config.db_vcf_list_name), i, skipped, db_name_samples)
-    return i, skipped
+    db_name_samples = dns
+    total_samples = ts
 
 
 def combine_variants():
@@ -116,23 +87,6 @@ def combine_variants():
     proc.wait()
     # print proc.returncode
     # proc.communicate()
-
-
-def update_database(samples, replace, testmode):
-    if not testmode:
-        assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
-        vcfslist = list()
-        idxlist = list()
-        for sample in samples:
-            vcfslist.append(sample.vcflocation)
-            idxlist.append(sample.vcflocation + ".tbi")
-        copied_idx, skipped_idx = pipeline_utility.file_utility.copy_vcf(idxlist, config.vcf_storage_location, replace)
-        copied, skipped = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location, replace)
-        updated, skip = update_vcf_list(vcfslist)
-        if copied + updated > 0:
-            # If there were any variant files updated (copied) or new variants added to vcf list
-            combine_variants()
-    pass
 
 
 def annotate(sample, args):
@@ -291,11 +245,13 @@ def create_excel_table(sample):
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
-    if args.annotate and sample.annotated:
-        if args.coverage and not sample.error:
-            sample.finished = True
-        else:
-            sample.finished = False
+    if args.annotate and sample.annotated and args.coverage and not sample.error:
+        sample.finished = True
+    elif args.annotate and sample.annotated and args.coverage and sample.error:
+        sample.finished = False
+        sys.stderr.write("Coverage was ordered but was not finished for sample {0}!\n".format(sample.name))
+    elif args.annotate and sample.annotated and not args.coverage and not sample.error:
+        sample.finished = True
 
 
 def run_samples(args, sample_list):
@@ -317,7 +273,8 @@ def run_samples(args, sample_list):
     print("Found {0} samples:".format(len(samples)))
     for sample in samples:
         print(sample)
-    update_database(samples, args.no_replace, args.testmode)
+    local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
+                                  db_name_samples, total_samples, idx=".tbi")
     for sample in samples:
         if args.annotate:
             annotate(sample, args)
@@ -325,7 +282,7 @@ def run_samples(args, sample_list):
             sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-            sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
+            # sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
         if args.coverage:
             calc_coverage(sample)
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
@@ -371,11 +328,10 @@ def main(args):
     samples = list()
     vcfslist = list()
 
-    # True if replace, False if --no_replace, passed as an argument in update_database()
-    if not args.no_replace:
+    if args.overwrite:
         sys.stderr.writelines(
-            "WARNING: VCF files with file names that already exist in the database will not be updated! "
-            "Old variant files still exist. (--no_replace is active)\n")
+            "WARNING: VCF files with file names that already exist in the database will be overwritten! "
+            "Old variant files will not exist. (--overwrite is active)\n")
 
     if args.batch:
         # prefixes, vcfslist, bamlist = create_configs()
@@ -408,12 +364,12 @@ if __name__ == "__main__":
                                 "Will only run if samples have a matching vcf and bam file.",
                            action="store", nargs='+', type=str)
 
-        parser.add_argument("-r", "--no_replace",
-                            help="Will skip copying the VCF file to the VCF directory specified in the config file"
-                                 " (don't overwrite VCF in the DB)."
+        parser.add_argument("-r", "--overwrite",
+                            help="Overwrites the VCF file in the db with the current sample if it already exists "
+                                 "in the DB."
                                  "Useful in a test scenario when running large batches repeatedly or if the VCF is "
-                                 "not supposed to be inserted into the DB.",
-                            action="store_false", default=True)
+                                 "not supposed to be inserted into the DB for each run.",
+                            action="store_false", default=False)
         parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
                                                      "expects the DB to exist.",
                             action="store_true", default=False)
