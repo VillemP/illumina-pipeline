@@ -52,6 +52,7 @@ class Cell:
         self.column_index = col_i
         self._rawdata = value  # The raw data is the data read in from the input file and won't be processed
         self.value = value  # The value can be post-processed before writing to the table
+        self.displaydata = None  # If this data is set to other than None, this data will be displayed over cell.value
         self.sheet = sheet  # 0-indexed
         self.col_name = xl_col_to_name(self.column_index)
         self.is_toprow = self.row_index == 0
@@ -176,7 +177,7 @@ def post_process(cell, ruleset):
 
     The Filter class sets the post processing ruleset to a whole column.
 
-    :param cell: (Cell)
+    :param cell: (txttoxlsx_filtered.Cell)
     :param ruleset: The ruleset object to be run against the current cell
     :return: Returns the same cell object with a changed or unchanged cell.value. The cell value can be confidently
     written to the excel table. However, if the cell.formula has now been set,
@@ -189,13 +190,18 @@ def post_process(cell, ruleset):
                 # removing unwanted characters)
                 if ruleset.python_notation is not None:
                     cell.value = eval(ruleset.python_notation.format(cell.value))
-                # Secondly try to create a valid excel formula using the new data
+                # Secondly check whether any special display data is used added (e.g. cell.value has been converted but
+                # something other should be displayed
+                if ruleset.display_python_notation is not None:
+                    cell.displaydata = eval(ruleset.display_python_notation.format(cell.value))
+                # Thirdly try to create a valid excel formula using the new data
                 # if the ruleset is of type filter.FORMULA, other filter types' excel notation is used in add_filter()
                 # Skip cells that are empty. If empty cells need to be converted to formulas the value has to be changed
                 if ruleset.filter_type == filt.FORMULA:
                     if ruleset.excel_notation is not None and len(ruleset.excel_notation) > 0:
                         if cell.value not in EMPTY_CELL:
-                            cell.formula = eval(ruleset.excel_notation.format(cell.value, cell.rawdata))
+                            cell.formula = eval(
+                                ruleset.excel_notation.format(cell.value, cell.rawdata, cell.displaydata))
                     else:
                         raise ValueError("The filter {0} had an empty formula in the excel_notation argument!"
                                          .format(ruleset))

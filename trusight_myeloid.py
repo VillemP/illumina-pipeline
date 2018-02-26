@@ -7,7 +7,7 @@ import sys
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 # TODO: Run a set of commands from STDOUT -> STDIN
-from miniseq.miniseq_excel_filters import MiniseqFilters, MiniseqPostprocess, MiniseqFormats
+from miniseq.myeloid_excel_filters import MyeloidFilters, MyeloidFormats, MyeloidPostprocess
 from miniseq.myeloidconfig import MyeloidConfig
 from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos
 from pipeline_utility.txttoxlsx_filtered import create_excel
@@ -64,7 +64,10 @@ def update_vcf_list(vcfs_list):
                 i += 1
                 db_vcfs.write(line + "\n")
             else:
-                skipped += 1
+                line = "V:{0}_re {1}".format(name, os.path.join(config.vcf_storage_location,
+                                                                os.path.basename(vcf)))
+                i += 1
+                db_vcfs.write(line + "\n")
     total_samples = curr_len + i
     db_name_samples = db_name_samples + str(total_samples)
 
@@ -142,9 +145,9 @@ def annotate(sample, args):
         annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                            "-out {3} "
                            "-remove -protocol "
-                           "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
-                           "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                           "-operation g,f,f,f,f,f,f "
+                                    "refGene,cytoBand,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130,cosmic84 "
+                                    "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                    "-operation g,r,f,f,f,f,f,f,f "
                            "-nastring . "
                            "-otherinfo "
                                     "-vcfinput".format(config.annotator, sample.vcflocation, config.annotation_db,
@@ -172,12 +175,12 @@ def annotate(sample, args):
     args_5 = shlex.shlex('java -jar {0} '
                          'extractFields '
                          '- '
-                         '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         '-e . -s ";" CHROM POS cytoBand avsnp147 REF ALT QUAL FILTER DP GEN[0].AD[0] GEN[0].VF '
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
                          '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
                          'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
-                         'CLNDSDB CLNDSDBID '
+                         'CLNDSDB CLNDSDBID cosmic84 '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
     if args.testmode:
@@ -234,7 +237,7 @@ def calc_coverage(sample):
                              '-I {2} '
                              '-L {3} '
                              '-geneList {4} '
-                             '-ct 1 -ct 10 -ct 20 -ct 50 '
+                             '-ct 20 -ct 500 -ct 1000 -ct 5000 '
                              '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
                                              config.refseq, os.path.join(path, sample.name + ".requested")))
     diagnose_args = shlex.split('java -Xmx4g -jar {0} '
@@ -270,18 +273,29 @@ def calc_coverage(sample):
                                                                sample.name + '.requested.sample_summary')))
         sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                                sample.name + '.requested.sample_gene_summary')))
+    else:
+        sample.error = depth.returncode
 
 
 def create_excel_table(sample):
-    filters = MiniseqFilters(sample.table_files)
-    post = MiniseqPostprocess(sample.table_files)
-    formats = MiniseqFormats(sample.table_files)
-    if sample.annotated:
+    filters = MyeloidFilters(sample.table_files)
+    post = MyeloidPostprocess(sample.table_files)
+    formats = MyeloidFormats(sample.table_files)
+    if args.annotate and sample.annotated:
         create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
-        sample.finished = True
+
+    elif args.testmode:
+        sample.table_files.append(sample.name + ".annotated.table")
+        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
+
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
+    if args.annotate and sample.annotated:
+        if args.coverage and not sample.error:
+            sample.finished = True
+        else:
+            sample.finished = False
 
 
 def run_samples(args, sample_list):
@@ -343,14 +357,14 @@ def run_samples(args, sample_list):
             unfinished_samples.append(sample)
 
     print("-" * 40)
-    print("Annotated {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
+    print("Finished {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
     print("-" * 40)
     for sample in samples:
         print(sample)
     if len(unfinished_samples) > 0:
         for sample in unfinished_samples:
             print("{0} is unfinished. Check for errors. ".format(sample))
-        print("You can rerun with --samples {0} (strip the brackets)".format(s.name for s in unfinished_samples))
+        print("You can rerun with --samples {0}".format(str(list(s.name for s in unfinished_samples)).strip("[]'")))
 
 
 def main(args):

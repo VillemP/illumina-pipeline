@@ -5,13 +5,12 @@ EDITVALUE = "edit"
 
 
 class Ruleset:
-    def __init__(self, column, python_notation, excel_notation, filtertype):
-        # type: (str, str or None, list or str, bool) -> Ruleset
-
+    def __init__(self, column, python_notation, excel_notation, filtertype, display_python_notation=None):
         self.column = column
         assert type(column) is str
         self.python_notation = python_notation
         self.excel_notation = excel_notation
+        self.display_python_notation = display_python_notation
 
         if filtertype == FILTER_COLUMN_LIST:
             assert type(excel_notation) is list
