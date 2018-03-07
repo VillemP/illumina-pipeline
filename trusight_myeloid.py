@@ -185,7 +185,7 @@ def calc_coverage(sample):
     except OSError:
         if not os.path.isdir(path):
             raise
-    depth_args = shlex.split('java -Xmx4g -jar {0} '
+    depth_args = shlex.split('java -Xmx8g -jar {0} '
                              '-T DepthOfCoverage '
                              '-R {1} '
                              '-I {2} '
