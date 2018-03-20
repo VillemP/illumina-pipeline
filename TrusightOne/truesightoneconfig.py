@@ -7,7 +7,7 @@ class TruesightOneConfig(BaseConfig):
     def __init__(self, filepath, json_dir='', name='', vcf_storage_location='', db_vcf_list_name='', db_directory='',
                  db_name='',
                  logfile="Truesight-log.txt", toolkit='directory to GenomeAnalysisTK.jar',
-                 reference='directory to ucsc.hg19.fasta',
+                 reference='directory to ucsc.hg19.fasta', reference_dict='Directory to ucsc.hg19.dict',
                  targetfile=".bed target file", refseq=".refSeq file", annotator=None, annotation_db=None,
                  custom_annotation_dir=None, snpsift="directory to Snpsift.jar", tsoGenes="TSO_coverage.txt",
                  hgncPath=None, gene_table=None, db_base_n=0):
@@ -24,6 +24,7 @@ class TruesightOneConfig(BaseConfig):
         self.logfile = logfile
         self.toolkit = toolkit
         self.reference = reference
+        self.reference_dict = reference_dict
         self.targetfile = targetfile
         self.refseq = refseq
         self.annotator = annotator

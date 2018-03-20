@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
 import pipeline_utility.file_utility
 import pipeline_utility.sample
@@ -97,13 +98,13 @@ def annotate(sample, args):
     if not args.testmode:
 
         annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
-                           "-out {3} "
-                           "-remove -protocol "
+                                    "-out {3} "
+                                    "-remove -protocol "
                                     "refGene,cytoBand,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130,cosmic84 "
                                     "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
                                     "-operation g,r,f,f,f,f,f,f,f "
-                           "-nastring . "
-                           "-otherinfo "
+                                    "-nastring . "
+                                    "-otherinfo "
                                     "-vcfinput".format(config.annotator, sample.vcflocation, config.annotation_db,
                                                        sample.name))
         if not sample.error:
@@ -191,7 +192,7 @@ def calc_coverage(sample):
                              '-I {2} '
                              '-L {3} '
                              '-geneList {4} '
-                             '-ct 20 -ct 500 -ct 1000 -ct 5000 '
+                             '-ct 20 -ct 100 -ct 500 -ct 1000 '
                              '-o {5}'.format(config.toolkit, config.reference, sample.bamlocation, config.targetfile,
                                              config.refseq, os.path.join(path, sample.name + ".requested")))
     diagnose_args = shlex.split('java -Xmx4g -jar {0} '
@@ -227,6 +228,17 @@ def calc_coverage(sample):
                                                                sample.name + '.requested.sample_summary')))
         sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                                sample.name + '.requested.sample_gene_summary')))
+
+        # Annotate the interval summary file based on BED file targets
+        pipeline_utility.file_utility. \
+            add_symbols_to_interval_summary(config.targetfile, os.path.abspath(
+            os.path.join(workingDir, sample.name + "_coverage", sample.name + '.requested.sample_interval_summary')),
+                                            os.path.abspath(
+                                                os.path.join(workingDir, sample.name + "_coverage", sample.name +
+                                                             "annotated.sample_interval_summary")))
+
+        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage", sample.name +
+                                                               "annotated.sample_interval_summary")))
     else:
         sample.error = depth.returncode
 
@@ -254,7 +266,48 @@ def create_excel_table(sample):
         sample.finished = True
 
 
+def single_sample(sample, finished_samples, unfinished_samples):
+    if args.annotate:
+        annotate(sample, args)
+        sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+        sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+        sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+        sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+        # sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
+    if args.coverage:
+        calc_coverage(sample)
+        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                         sample.name + ".sample_cumulative_coverage_counts"))
+        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                         sample.name + ".sample_cumulative_coverage_proportions"))
+        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                         sample.name + ".sample_interval_statistics"))
+        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                         sample.name + ".sample_statistics"))
+
+    create_excel_table(sample)
+
+    # Delete the intermediary files, unnecessary files and files that have already been inserted
+    # into the output file.
+    if not args.keep:
+        for trashfile in sample.trash:
+            try:
+                os.remove(trashfile)
+            # The file might've been already deleted or did not exist in the first place.
+            except(OSError) as oserror:
+                sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
+
+    if sample.finished:
+        print("Finished sample {0}".format(sample.name))
+        finished_samples.append(sample)
+    else:
+        print("Could not finish sample {0}".format(sample))
+        unfinished_samples.append(sample)
+
+
 def run_samples(args, sample_list):
+    timeStart = time.time()
     samples = list()
     finished_samples = []
     unfinished_samples = []
@@ -276,45 +329,14 @@ def run_samples(args, sample_list):
     local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
                                   db_name_samples, total_samples, idx=".tbi")
     for sample in samples:
-        if args.annotate:
-            annotate(sample, args)
-            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-            sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
-            sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-            # sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
-        if args.coverage:
-            calc_coverage(sample)
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_cumulative_coverage_counts"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_cumulative_coverage_proportions"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_interval_statistics"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_statistics"))
-        create_excel_table(sample)
+        # TODO: parallelize
+        single_sample(sample, finished_samples, unfinished_samples)
 
-        # Delete the intermediary files, unnecessary files and files that have already been inserted
-        # into the output file.
-        if not args.keep:
-            for trashfile in sample.trash:
-                try:
-                    os.remove(trashfile)
-                # The file might've been already deleted or did not exist in the first place.
-                except(OSError) as oserror:
-                    sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
-
-        if sample.finished:
-            print("Finished sample {0}".format(sample.name))
-            finished_samples.append(sample)
-        else:
-            print("Could not finish sample {0}".format(sample))
-            unfinished_samples.append(sample)
-
+    timeEnd = time.time()
     print("-" * 40)
-    print("Finished {0}/{1} of ordered/found samples:".format(len(finished_samples), len(samples)))
+    print("Finish time: {0}".format(timeEnd))
+    print("Finished {0}/{1} of ordered/found samples in {2}:".format(len(finished_samples), len(samples),
+                                                                     timeStart - timeEnd))
     print("-" * 40)
     for sample in samples:
         print(sample)

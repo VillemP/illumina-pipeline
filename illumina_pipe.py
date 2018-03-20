@@ -372,7 +372,8 @@ def calc_coverage(sample):
     sample.temptargetfile = temptarget.name
 
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".reference.", suffix=".refseq") as temprefseq:
-        pipeline_utility.file_utility.write_refseq(sample.order_list, config.refseq, out=temprefseq.file)
+        pipeline_utility.file_utility.write_refseq(sample.order_list, config.reference_dict,
+                                                   config.refseq, out=temprefseq.file)
 
     sample.temprefseq = temprefseq.name
 

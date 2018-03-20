@@ -16,6 +16,28 @@ import sys
 commands = ['WriteVcfs', 'CopyVcfs']
 duplicates = 0
 
+reflines = None
+
+
+class Interval():
+    def __init__(self, chrom, start, stop, symbol):
+        self.chrom = chrom
+        self.start = start
+        self.stop = stop
+        self.symbol = symbol
+
+    def between(self, range):
+        if self.chrom == range[0]:
+            if self.start <= range[1] and self.stop >= range[2]:
+                return True
+        return False
+
+    def __str__(self):
+        return "\t".join((self.chrom, str(self.start), str(self.stop), str(self.symbol)))
+
+    def compare(self, other):
+        return self.symbol == other.symbol and self.chrom == other.chrom
+
 
 def find_file(main_dir, filename):
     """
@@ -204,12 +226,15 @@ def count_unique_names(infile, col, seperator="\t"):
 
 
 # TODO: convert sort args to **nargs and sort as many positions as required
-def filter_targetfile(geneslist, targetfile, genecolumn=3, sort0=0, sort1=1, sort2=2):
+# TODO: if the area covered is outside the regular chromosomes then the lexicographic sort will add
+# contigs inbetween the chromosomes e.g. chr6 chr6_hapt2 chr7, which is incompatible with the regular UCSC reference
+# file order (which has the extra contigs after chrY) and therefore GATK.
+def filter_targetfile(geneslist, targets, genecolumn=3, sort0=0, sort1=1, sort2=2):
     """
     Creates a custom sorted targetfile (default) or refseq from a sample-specific order of gene symbols.
     Default is equivalent to:
     grep $'\t'${gene}$'\.' < ${targets.bed} >> ${sample}.genes.bed
-    sort -k1,1V -k2,2n -k3,3n < ${sample}.genes.bed > ${prefix}.genes.sorted.bed
+    sort -k3,3V -k4,4n -k5,5n < ${sample}.genes.bed > ${prefix}.genes.sorted.bed
 
     Also tries to convert the gene name in the target file into a HGNC symbol since internally
     all gene names in the application are HGNC symbols if possible (see gene.py)
@@ -217,9 +242,7 @@ def filter_targetfile(geneslist, targetfile, genecolumn=3, sort0=0, sort1=1, sor
     """
     g = None
     final_targets = []
-    # Convert the targetfile to a list with stripped values
-    with open(targetfile) as targetfile:
-        targets = targetfile.readlines()
+
     split_targets = []  # Final edited list
     for i, line in enumerate(targets):
         target_line = []
@@ -227,9 +250,11 @@ def filter_targetfile(geneslist, targetfile, genecolumn=3, sort0=0, sort1=1, sor
             target_line.append(element.strip())
         # The last element of the target line is a string GENE_name.EXON_START_int.EXON_END_int
         # Get the gene name from the target
-        gene_name = target_line[genecolumn].split(".")[0]  # The gene name is the first element in both BED and refseq
+        gene_name = target_line[genecolumn].split(".")[0]  # The gene name is the first element in the column
         if i == 0:
-            g = gene.find_gene(gene_name)
+            # If working with a large "unfiltered" refseq,
+            # don't report not finding genes that exists in the refseq but not in the covered genes
+            g = gene.find_gene(gene_name, verbose=False)
         else:
             if g is not None:
                 if g.name != gene_name:  # Don't go looking for the gene again, it's the same gene but a different exon
@@ -253,21 +278,129 @@ def filter_targetfile(geneslist, targetfile, genecolumn=3, sort0=0, sort1=1, sor
         for t in gene_targets:
             final_targets.append(t)
     s = sorted(final_targets,
-               key=lambda final_target: Version(final_target[sort0]))  # sort by chromosome (numeric not lexicographic)
-    s = sorted(s, key=lambda final_target: final_target[sort1])  # sort by start index
-    s = sorted(s, key=lambda final_target: final_target[sort2])  # sort by end
+               key=lambda final_target: (Version(final_target[sort0]), int(final_target[sort1]),
+                                         int(final_target[sort2])))  # sort by chromosome (numeric not lexicographic)
     return s
 
 
+def readdict(reference_dictionary, verbose=False):
+    """
+    Reads in the reference dict file and returns the contigs in order.
+    :param verbose: Write the output to sys.stderr
+    :param reference_dictionary: The dictionary file of the reference fasta (e.g. ucsc.hg19.dict)
+    :return: list
+    """
+    contigs = []
+    with open(reference_dictionary) as ref:
+        for i, line in enumerate(ref.readlines()):
+            if line.startswith("@SQ"):  # contig line
+                # contig is "SN:chrM" (2. column)
+                contig = line.split("\t")[1].strip().split(":")[1]
+                contigs.append(contig)  # create a list of all contigs and the positional order they're in
+    if verbose:
+        sys.stderr.write("Reference dict contig order: \n")
+        sys.stderr.write(str(contigs) + "\n")  # print the reference contig order
+    return contigs
+
+
+def readrefseq(refSeq):
+    """
+    Converts the refseq lines to a list. Returns it as a 2-dimensional table of lists)
+    :param refSeq: list of lines in the refseq file
+    :return: list
+    """
+    allCols = []
+    for i, line in enumerate(refSeq):
+        if i != 0:  # skip the header
+            allCols.append(line.split("\t"))  # adds a column-split line to the list (the final column contains a LF)
+
+    return allCols
+
+
+def sort_refseq(ref_dict, refseq):
+    """
+    Sort the refseq file according to chromosome, startpos, endpos based on the input reference sequence dictionary file
+    Returns a 2-dimensional sorted table of lists.
+    :param ref_dict: Path to the reference dict (e.g. ucsc.hg19.dict)
+    :param refseq: List of lines in the refseq file
+    :return: list
+    """
+    contigs = readdict(ref_dict)
+    global reflines
+    if reflines is None:
+        if type(refseq[0]) is str:
+            reflines = readrefseq(refseq)
+            # The input refseq is a list of unsplit strings
+        elif type(refseq[0] is list):
+            reflines = refseq  # the input param is already a list of lists (split by column)
+        else:
+            raise ValueError("Unknown refseq parameter while sorting.")
+
+    sorted_ref = sorted(reflines, key=lambda line: (contigs.index(line[2]), int(line[4]), int(line[5])))
+    return sorted_ref
+
+
 def write_targetfile(geneslist, targetfile, out=sys.stdout):
-    for line in filter_targetfile(geneslist, targetfile):
+    with open(targetfile) as targetf:
+        lines = targetf.readlines()
+        for line in filter_targetfile(geneslist, lines):
+            out.write("\t".join(line) + "\n")
+
+
+def write_refseq(geneslist, dict, refseq, out=sys.stdout):
+    global reflines
+    if reflines is None:
+        with open(refseq) as ref:
+            reflines = ref.readlines()
+    gene_filtered_refseq = filter_targetfile(geneslist, reflines, genecolumn=12, sort0=2, sort1=4, sort2=5)
+    # Definitely make sure our sort catches all sorting orders of refseq.
+    # This will sort the refseq according to the reference dictionary file.
+    final_sort = sort_refseq(dict, gene_filtered_refseq)
+    for line in final_sort:
         out.write("\t".join(line) + "\n")
 
 
-def write_refseq(geneslist, refseq, out=sys.stdout):
-    for line in filter_targetfile(geneslist, refseq, genecolumn=12, sort0=2, sort1=4, sort2=5):
-        out.write("\t".join(line) + "\n")
+def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None):
+    interval_list = []
+    with targetfile:
+        lines = targetfile.readlines()
+        for line in lines:
+            cols = line.split("\t")
+            if len(cols) >= 4:
+                interval = Interval(cols[0], int(cols[1]) - 1, int(cols[2]) - 1,
+                                    cols[3].strip())  # GATK reports intervals as +1
+                match = [item for item in interval_list if item.compare(interval)]
+                if len(match) >= 1:
+                    if match[0].start > interval.start:
+                        match[0].start = interval.start
+                    if match[0].stop < interval.stop:
+                        match[0].stop = interval.stop
+                else:
+                    interval_list.append(interval)
+            else:
+                raise IndexError("The interval file contains too few columns or your file is not tab-delimited! "
+                                 "The 4th column should contain the symbol for the interval e.g. 'CFTR.exon.3'.")
+    for i in interval_list:
+        sys.stderr.write(str(i) + "\n")
 
+    with open(intervalsummary) as interv:
+        summary = interv.readlines()
+        output = []
+        for i, line in enumerate(summary):
+            if i != 0:  # skip the header
+                cols = line.split("\t")
+                chr, range = cols[0].split(":")
+                range = range.split("-")  # chr2:25475032-25475256
+                range = (chr, int(range[0]) - 1, int(range[1]) - 1)  # convert to tuple (chr1, 25475031, 25475255)
+                for interval in interval_list:
+                    if interval.between(range):
+                        cols.insert(0, interval.symbol)
+                output.append("\t".join(cols))
+    if out is not None:
+        with open(out, "w+") as outfile:
+            for line in output:
+                outfile.write(line)
+    return output
 
 if __name__ == "__main__":
 
@@ -295,10 +428,21 @@ if __name__ == "__main__":
     targetfile.add_argument("-g", "--genes", help="List of genes to be grepped and sorted into a new targetfile",
                             action="store", type=str, nargs="+")
     targetfile.add_argument("-t", "--targetfile", help="The input targetfile.", type=argparse.FileType('r'))
+    targetfile.add_argument("--dict", help="The reference sequence dictionary file.", type=argparse.FileType('r'))
     targetfile.add_argument("-s", "--hgnc", help="The HGNC gene symbols reference file.", type=str, action="store")
     targetfile.add_argument("-r", "--tsogenes", help="The genes reference file for "
                                                      "genes covered on the sequencing panel", type=str, action="store")
     targetfile.add_argument("-o", "--output", help="The output file to be created", action="store", type=str)
+
+    intervalsummary = subparsers.add_parser("intervalsummary")
+    intervalsummary.add_argument("--interval",
+                                 help="Add gene/exon symbols to an interval based summary file created by "
+                                      "GATK DepthOfCoverage.")
+    intervalsummary.add_argument("--bed",
+                                 help="The interval file (should also contain the symbols corresponding to each"
+                                      " interval.", type=argparse.FileType('r'))
+    intervalsummary.add_argument("--summary", help="The interval_summary file created by GATK that is to be annotated.")
+    intervalsummary.add_argument("--out", help="The output file, default is stdout", default="stdout")
     args = parser.parse_args()
 
     if args.command == "writevcfs":
@@ -310,4 +454,13 @@ if __name__ == "__main__":
         gene.load_hgnc_genes(args.hgnc)
         gene.load_tso_genes(args.tsogenes)
         # write_targetfile(args.genes, args.targetfile)
-        write_refseq(args.genes, args.targetfile.name)
+        write_refseq(args.genes, args.dict.name, args.targetfile.name)
+    if args.command == "intervalsummary":
+        product = add_symbols_to_interval_summary(args.bed, args.summary)
+        if args.out == "stdout":
+            for line in product:
+                sys.stdout.write(line)
+        else:
+            with open(args.out, "w+") as out:
+                for line in product:
+                    out.write(line)

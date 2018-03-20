@@ -78,7 +78,7 @@ def load_tso_genes(tsoPath):
 
 
 def get_tso_status(gene):
-    # type: (gene) -> Gene
+    # type: (gene) -> bool
     if len(tso_genes) == 0:
         # Load TSO genes if currently not loaded.
         load_tso_genes(gene.panel.config.tsoGenes)
@@ -91,7 +91,7 @@ def get_tso_status(gene):
     return False
 
 
-def find_gene(name):
+def find_gene(name, verbose=True):
     """
     Find the Gene object from the genes created from config.tsoGenes.
     Compares the gene name (which is converted to HGNC if possible) to the input,
@@ -115,14 +115,17 @@ def find_gene(name):
             if len(genes) == 1:
                 return genes[0]
             else:
-                sys.stderr.write("PIPELINE ERROR: The gene {0} had several matches among the covered genes!\n"
-                                 .format(name))
+                if verbose:
+                    sys.stderr.write("PIPELINE ERROR: The gene {0} had several matches among the covered genes!\n"
+                                     .format(name))
                 # TODO: What happens if there are several matches?
         else:
-            sys.stderr.write("PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
+            if verbose:
+                sys.stderr.write("PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
             return None
     else:
-        sys.stderr.write("The gene {0} was not found among HGNC names and synonyms.\n".format(name))
+        if verbose:
+            sys.stderr.write("The gene {0} was not found among HGNC names and synonyms.\n".format(name))
 
 
 def synonyms_to_hgnc(symbol):
