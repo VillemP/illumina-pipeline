@@ -24,7 +24,8 @@ def create_gene_dict(lines):
                 val = value[:-1]
             else:
                 val = "no_annotation"
-            v = val.replace(" ", "_").replace(";", "|").strip()  # Escape newlines and replace illegal chars
+            v = val.replace(" ", "_").replace(";", "|").replace("=",
+                                                                "_").strip()  # Escape newlines and replace illegal chars
             if key in d:
                 d[key].append(v)
             else:
