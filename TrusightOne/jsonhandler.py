@@ -166,5 +166,6 @@ class JsonHandler(JsonHandlerBase):
         print("Writing the table for panels with versions >=1.0 to {}".format(
             os.path.join(self.config.json_dir, "query.txt")))
         with open(os.path.join(self.config.json_dir, "query.txt"), "w+") as f:
+            f.write(TrusightOne.gene_panel.table_format + '\n')
             for panel in currentlist:
                 f.write(panel.as_table + '\n')

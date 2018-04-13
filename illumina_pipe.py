@@ -1,18 +1,17 @@
 import argparse
-import multiprocessing
 import os
 import shlex
 import subprocess
 import sys
 import time
 import traceback
-from Queue import Empty
 from tempfile import NamedTemporaryFile
+
+import parmap
 
 import TrusightOne.gene
 import TrusightOne.gene_panel
 import TrusightOne.truesightoneconfig
-import miniseq.configvalidator
 import pipeline_utility.file_utility
 import pipeline_utility.sample
 from TrusightOne.gene_panel import CombinedPanels
@@ -20,7 +19,7 @@ from TrusightOne.jsonhandler import JsonHandler
 from TrusightOne.tso_excel_filters import TruesightOneFilters
 from TrusightOne.tso_excel_filters import TruesightOneFormats
 from TrusightOne.tso_excel_filters import TruesightOnePostprocess
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, converthgnc
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, converthgnc, local_db_tool
 from pipeline_utility.converthgnc import HgncConverter
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
@@ -37,6 +36,7 @@ tso_genes = list()
 config = TrusightOne.truesightoneconfig.loadCfg(os.path.join(os.path.dirname(os.path.normpath(__file__)), "tso.yaml"))
 handler = JsonHandler(config.json_dir, config)
 combinedpanels = None
+
 # Number of samples in the DB
 # By default, the base db number is 0 but can be set to an increased number, if
 # a combined VCF file is used (e.g. from a previous batch)
@@ -75,70 +75,18 @@ def sortlog(logfile):
                 out.write("\t".join(text[1:]) + "\n")
 
 
-# deprecated, used with --old
-def create_configs():
-    prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-    vcflist = pipeline_utility.file_utility.write_vcfs_list(workingDir, "vcfs.list")
-    bamlist = pipeline_utility.file_utility.write_bams_list(workingDir, "bams.list")
-
-    if miniseq.configvalidator.validate_config("bams.list", "vcfs.list", "prefixes.list"):
-        return prefixes, vcflist, bamlist
-    else:
-        raise IOError("Database updating failed due to incorrect files.")
-
-
-# deprecated, used with --old
-def create_arguments_file(dbnr):
-    with open("arguments.txt", "wb+") as f:
-        f.write("wd:\n")
-        f.write(workingDir + "\n")
-        f.write("dbname:\n")
-        f.write(dbnr + "\n")
-        f.write("project:\n")
-        f.write(project)
-
-
-def update_vcf_list(vcfs_list):
+# This function is used as a signature that is called later to update the global vars in this module.
+def update_sample_stats(dns, ts):
     global db_name_samples
     global total_samples
 
-    try:
-        os.makedirs(config.db_directory)
-    except OSError:
-        if not os.path.isdir(config.db_directory):
-            raise
-
-    # If the file doesn't exist (on first run, the length is automatically 0)
-    if os.path.exists(config.db_vcf_dir):
-        curr_len = pipeline_utility.file_utility.file_len(config.db_vcf_dir)
-    else:
-        curr_len = 0
-
-    with open(config.db_vcf_dir, "a+") as db_vcfs:
-        data = db_vcfs.readlines()
-        # db_vcfs.seek(0)
-
-        i = 0
-        skipped = 0
-        for vcf in vcfs_list:
-            name = os.path.basename(vcf).rsplit('.')[0]
-            if not any(name in x.rstrip() for x in data):
-                line = "V:{0} {1}".format(name, os.path.join(config.vcf_storage_location,
-                                                             os.path.basename(vcf)))
-                i += 1
-                db_vcfs.write(line + "\n")
-            else:
-                skipped += 1
-    total_samples += curr_len + i
-    db_name_samples = db_name_samples + str(total_samples)
-    create_arguments_file(str(total_samples))
-    print ("Updated {0} with {1} unique samples. "
-           "Skipped {2} preexisting samples. New database name is {3}.").format(
-        os.path.join(config.db_directory, config.db_vcf_list_name), i, skipped, db_name_samples)
-    return i, skipped
+    db_name_samples = dns
+    total_samples = ts
 
 
-def combine_variants(out, vcflist=config.db_vcf_dir):
+def combine_variants(vcflist=config.db_vcf_dir):
+    global args
+
     # Combining variant files into a single reference to be used for statistical purposes
     args = shlex.split('java -Xmx10g -jar {0} '
                        '-T CombineVariants '
@@ -146,8 +94,11 @@ def combine_variants(out, vcflist=config.db_vcf_dir):
                        '-V {2} '
                        '-o {3} '
                        '-log {4} '
+                       '-nt {5} '
                        '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
-                                                               out, config.logfile))
+                                                               os.path.join(config.db_directory,
+                                                                            db_name_samples + ".vcf"), config.logfile,
+                                                               args.ncpus))
 
     proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
@@ -171,21 +122,6 @@ def combine_variants(out, vcflist=config.db_vcf_dir):
     proc.wait()
     # print proc.returncode
     # proc.communicate()
-
-
-def update_database(samples, replace, testmode):
-    if not testmode:
-        assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
-        vcfslist = list()
-        for sample in samples:
-            vcfslist.append(sample.vcflocation)
-        copied, renamed, not_found = pipeline_utility.file_utility.copy_vcf(vcfslist, config.vcf_storage_location,
-                                                                            replace)
-        updated, skip = update_vcf_list(vcfslist)
-        if copied + updated > 0:
-            # If there were any variant files updated (copied) or
-            combine_variants(os.path.join(config.db_directory, db_name_samples + ".vcf"))
-    pass
 
 
 def genderCheck(args, samples):
@@ -218,11 +154,6 @@ def genderCheck(args, samples):
         processes.append(proc)
         logdata(proc.stderr)
         proc.wait()
-
-
-def convert_to_hgnc(converter, infile, outfile, args):
-    print("Converting VCF gene names to HGNC names. Unknown gene symbols will be preserved.")
-    converter.convert(infile, outfile, True)
 
 
 def annotate(sample, args, converter):
@@ -338,25 +269,14 @@ def annotate(sample, args, converter):
             proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
 
             with open(sample.name + ".annotated.table", "w+") as table:
+                # converter.convert(vcf=proc_8.communicate()[0], output=table) # converts the VCF
                 table.write(proc_8.communicate()[0])
+
                 sample.table_files.append(os.path.abspath(table.name))
                 if proc_8.returncode == 0:
                     sample.annotated = True
                     print("Finished annotating sample {0}".format(sample.name))
                     print(sample)
-            jobs = multiprocessing.Pool(8)
-            q = multiprocessing.Queue()
-            # t = Thread(target=async_log, args=(proc_8.stdout, q))
-            # t.daemon = True
-            # t.start()
-
-            try:
-                pid, line = q.get_nowait()  # or q.get(timeout=.1)
-                pass
-            except Empty:
-                pass
-            else:  # got line
-                print(pid, line)
             for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
                 processes.append(proc)
                 # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
@@ -511,7 +431,57 @@ def getGeneOrder(samples, args):
             sys.exit(1)
 
 
-def run_samples(args, sample_list):
+def single_sample(sample, converter):
+    global args
+    try:
+        if args.annotate:
+            annotate(sample, args, converter)
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
+            sample.trash.append(sample.genes_tempfile.name)
+        if args.coverage:
+            calc_coverage(sample)
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_counts"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_proportions"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_interval_statistics"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_statistics"))
+            sample.trash.append(sample.temprefseq)
+            sample.trash.append(sample.temptargetfile)
+        create_excel_table(sample)
+
+        # Delete the intermediary files, unnecessary files and files that have already been inserted
+        # into the output file.
+        if not args.keep:
+            for trashfile in sample.trash:
+                try:
+                    os.remove(trashfile)
+                # The file might've been already deleted or did not exist in the first place.
+                except(OSError) as oserror:
+                    sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
+
+        if sample.finished:
+            print("Finished sample {0}".format(sample.name))
+            # finished_samples.append(sample)
+        else:
+            print("Could not finish sample {0}".format(sample))
+            # unfinished_samples.append(sample)
+
+    except Exception as error:
+        sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
+        traceback.print_exc(file=sys.stderr)
+        raise error
+
+
+def run_samples(sample_list):
+    global args
     if not handler.loaded:
         handler.get_all_panels(False)  # Get local data
 
@@ -535,58 +505,16 @@ def run_samples(args, sample_list):
     if args.gendercheck:
         genderCheck(args, samples)
     getGeneOrder(samples, args)
-    if args.annotate:
-        converter = HgncConverter(config.hgncPath)
+    converter = HgncConverter(config.hgncPath)
     # DB is already updated
     if not args.old:
-        update_database(samples, args.no_replace, args.testmode)
-    for sample in samples:
-        try:
-            if args.annotate:
-                annotate(sample, args, converter)
-                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-                sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
-                sample.trash.append(sample.genes_tempfile.name)
-            if args.coverage:
-                calc_coverage(sample)
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".sample_cumulative_coverage_counts"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".sample_cumulative_coverage_proportions"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".sample_interval_statistics"))
-                sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                                 sample.name + ".sample_statistics"))
-                sample.trash.append(sample.temprefseq)
-                sample.trash.append(sample.temptargetfile)
-            create_excel_table(sample)
+        # update_database(samples, args.no_replace, args.testmode)
+        local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
+                                      db_name_samples, total_samples)
 
-            # Delete the intermediary files, unnecessary files and files that have already been inserted
-            # into the output file.
-            if not args.keep:
-                for trashfile in sample.trash:
-                    try:
-                        os.remove(trashfile)
-                    # The file might've been already deleted or did not exist in the first place.
-                    except(OSError) as oserror:
-                        sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
+    multiprocess = parmap.map(single_sample, samples, converter, pm_pbar=True, pm_processes=args.ncpus)  #
 
-            if sample.finished:
-                print("Finished sample {0}".format(sample.name))
-                finished_samples.append(sample)
-            else:
-                print("Could not finish sample {0}".format(sample))
-                unfinished_samples.append(sample)
 
-        except Exception as error:
-            sys.stderr.write("PIPELINE ERROR: {0}\nTrace: ".format(sample))
-            traceback.print_exc(file=sys.stderr)
-            raise error
-            # TODO: Run conifer for the whole batch
     print("-" * 40)
     print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
     print("-" * 40)
@@ -636,9 +564,10 @@ def query_symbol(symbol_list):
         print("-" * 40)
 
 
-def main(args):
+def main():
     print("Running TSO pipeline tool with {0}".format(args))
     global combinedpanels
+    global args
     samples = list()
     prefixes = list()
     yesChoice = ['yes', 'y']
@@ -651,10 +580,10 @@ def main(args):
 
     # Create list files for running legacy scripts for CONIFER
     if args.legacy:
-        prefixes, vcfslist, bamlist = create_configs()
+        prefixes, vcfslist, bamlist = local_db_tool.create_configs()
 
     # True if replace, False if --no_replace, passed as an argument in update_database()
-    if not args.no_replace:
+    if not args.overwrite:
         sys.stderr.write(
             "WARNING: VCF files with file names that already exist in the database will not be updated! "
             "Old variant files still exist. (--no_replace is active)\n")
@@ -663,16 +592,17 @@ def main(args):
         # This means args.legacy is False and we already have our list of prefixes
         if len(prefixes) == 0 and not args.legacy:
             prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-        run_samples(args, prefixes)
+        run_samples(prefixes)
 
     elif args.old:
-        prefixes, vcfslist, bamlist = create_configs()
+        prefixes, vcfslist, bamlist = local_db_tool.create_configs()
         for i in range(0, len(prefixes)):
             samples.append(pipeline_utility.sample.Sample(prefixes[i], vcfslist[i], bamlist[i]))
-        update_database(samples, args.no_replace, args.testmode)
+        local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats, db_name_samples,
+                                      total_samples)
     elif args.samples:
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
-        run_samples(args, args.samples)
+        run_samples(args.samples)
     elif args.json:
         while True:
             try:
@@ -696,7 +626,9 @@ def main(args):
                           "Do you wish to continue {1} or not {2}: "
                           .format(config.custom_annotation_dir, yesChoice, noChoice)).lower()
         if input in yesChoice:
-            db_update.update_all(config.custom_annotation_dir, args.testmode)
+            # db_update.update_all(config.custom_annotation_dir, args.testmode)
+            db_update.update_hgnc()
+
         elif input in noChoice:
             print("Quitting...")
 
@@ -738,6 +670,7 @@ class Logger(object):
 
 
 if __name__ == "__main__":
+    global args
     parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-b", "--batch",
@@ -758,7 +691,7 @@ if __name__ == "__main__":
                             "(version 1.0 and upper) and/or table of combined panels.")
     group.add_argument("-u", "--update", action="store_true", default=False,
                        help="Updates the custom annotations for HPO, OMIM terms.")
-    group.add_argument("-m", "--search", action="store", nargs="?", type=str, const="",
+    group.add_argument("--search", action="store", nargs="?", type=str, const="",
                        help="The gene tool is a tool to help search for genes and panels covered by Truesight One "
                             "from custom panels, PanelApp panels and HGNC gene symbols.")
     parser.add_argument("-p", "--panels", type=argparse.FileType('r'),
@@ -773,12 +706,11 @@ if __name__ == "__main__":
                              "-<newline>\n"
                              "SAMPLE_ID_2<tab>PANEL_2<tab>-\\n\n"
                              "SAMPLE_ID_3<tab>-<tab>GENE2, DMD, FBN1\\n\n\n")
-    parser.add_argument("-r", "--no_replace",
+    parser.add_argument("--overwrite",
                         help="Will skip copying the VCF file to the VCF directory specified in the config file"
-                             " (don't overwrite VCF in the DB)."
-                             "Useful in a test scenario when running large batches repeatedly or if the VCF is "
-                             "not supposed to be inserted into the DB.",
-                        action="store_false", default=True)
+                             "(overwrites VCF in the DB)."
+                             "Useful in a test scenario when running large batches repeatedly",
+                        action="store_true", default=False)
     parser.add_argument("-a", "--annotate", default=False, action="store_true",
                         help="The output will contain a table with the annotated variants. "
                              "Run this explicitly for annotations")
@@ -794,6 +726,8 @@ if __name__ == "__main__":
                                                                                    "for running legacy bash scripts.")
     parser.add_argument("-g", "--gendercheck", default=False, action="store_true",
                         help="Calculate the heterogenity for each sample and output it as a table.")
+    parser.add_argument("--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
+                        action="store", type=int)
 
     args = parser.parse_args()
     if args.batch and args.panels is None:
@@ -801,7 +735,7 @@ if __name__ == "__main__":
     if args.samples is not None and args.panels is None:
         parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
-    main(args)
+    main()
 
     for p in processes:
         try:

@@ -183,13 +183,13 @@ def update_hpo(annotationFolder, test):
                handler.splitHPOterms)
 
 
-def updated_hgnc():
+def update_hgnc():
     print("Downloading HGNC symbols to {0}".format(handler.config.hgncPath))
     handler.downloadHGNCsymbols()
     print("Finished!")
 
 
 def update_all(annotationFolder, test):
-    updated_hgnc()
+    update_hgnc()
     update_hpo(annotationFolder, test)
     update_omim(annotationFolder, test)

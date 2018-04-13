@@ -3,12 +3,27 @@ import os
 import sys
 from distutils.version import LooseVersion
 
+import numpy
+
 import gene
 from gene import Gene
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
 genesdict = {}
 
+table_format = "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}\t{15}" \
+    .format("Name", "id", "version", "diseasegroup", "diseasesubgroup",
+            "Total_genes",
+            "green_genes",
+            "avg_coverage_on_tso",
+            "green_genes",
+            "Covered_green_genes",
+            "Covered_green_genes",
+            "amber_genes",
+            "avg_coverage_amber",
+            "amber_genes",
+            "Covered_amber_genes",
+            "Covered_amber_genes")
 
 class GenePanel(object):
     def __init__(self, panel_json, config=None):
@@ -48,8 +63,12 @@ class GenePanel(object):
 
     @property
     def avg_coverage_on_tso(self):
-        genes = [g.coverage for g in self.tso_genes]
-        return sum(genes) / float(len(genes))
+        genes = [float(g.coverage) for g in self.tso_genes if float(g.coverage) != -1]
+        try:
+            return sum(genes) / float(len(genes))
+        except TypeError as e:
+            raise e
+            # return None
 
     @property
     def green_genes(self):
@@ -79,7 +98,7 @@ class GenePanel(object):
             .format(self.name, self.id, self.version, self.diseasegroup, self.diseasesubgroup,
                     len(self.genes),
                     len(self.green_genes),
-                    round(self.avg_coverage_GREEN, 2),
+                    round(self.avg_coverage_on_tso, 2),
                     [g.name.encode("ascii") for g in self.green_genes],
                     len([g for g in self.tso_genes if g.evidence_level == gene.GREEN]),
                     [g.name.encode("ascii") for g in self.tso_genes if g.evidence_level == gene.GREEN],
@@ -202,7 +221,8 @@ class CombinedPanels(dict):
                 name = ",".join(str(symbol).replace(" ", "_") for symbol in key)
             else:
                 name = key
-            line = [name, len(genes)]
+            # First three lines are name, length of genes, mean panel-based coverage
+            line = [name, len(genes), numpy.mean([panel.avg_coverage_on_tso for panel in panels])]
             line.extend(genes)
             lines.append(line)
         #
@@ -218,13 +238,14 @@ class CombinedPanels(dict):
             self.handler.get_all_panels(False)
         print("Writing the panel combinations to {0}".format(os.path.join(self.handler.config.json_dir, out)))
         with open(os.path.join(self.handler.config.json_dir, out), "w+") as f:
+            f.write(table_format + '\n')
             for panelcombo in self.iteritems():
                 for panel in panelcombo[1]:
                     f.write(panel.as_table + '\t{}'.format(panelcombo[0]) + '\n')
         print("Writing the combined panels gene table to {0}".format(self.handler.config.gene_table))
         with open(self.handler.config.gene_table, "wb+") as f:
             tbl = self.table()
-            print type(tbl)
+            #print type(tbl)
             for i, row in enumerate(tbl):
                 if i == 0:
                     f.write("\t".join([str(tupl) for tupl in row]) + "\n")

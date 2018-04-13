@@ -1,9 +1,12 @@
 import argparse
+import datetime
 import os
 import shlex
 import subprocess
 import sys
-import time
+import thread
+import traceback
+from multiprocessing import Pool
 
 import pipeline_utility.file_utility
 import pipeline_utility.sample
@@ -19,6 +22,8 @@ except:
     from StringIO import StringIO
 
 processes = []
+submitted = 0
+cluster = None
 # Location of the cfg file is in the same folder as this script
 cfg_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tsm.yaml')
 config = MyeloidConfig(cfg_path)
@@ -29,6 +34,21 @@ workingDir = os.getcwd()
 project = os.path.basename(os.path.normpath(workingDir))
 
 assert os.path.exists(config.annotator), "Did you fill out your config fields correctly?"
+
+
+class JobStats():
+    def __init__(self):
+        self.lock = thread.allocate_lock()
+        self.finished_samples = []
+        self.unfinished_samples = []
+
+    def change(self, sample, value):
+        self.lock.acquire()
+        if value is True:
+            self.finished_samples.append(sample)
+        else:
+            self.unfinished_samples.append(sample)
+        self.lock.release()
 
 
 def logdata(stdout):
@@ -90,10 +110,19 @@ def combine_variants():
     # proc.communicate()
 
 
-def annotate(sample, args):
+def annotate(sample, args, config):
+    """
+    Takes in a VCF file, reduces it to match coding areas only, annotate it using ANNOVAR
+    Also creates a VCF file using ITDSeek if it exists
+    Uses an ugly subprocess approach.
+    :param sample:
+    :param args:
+    :param config:
+    """
     print("Starting annotation for file: {0}".format(sample.name))
     global total_samples
     global db_name_samples
+
     # Reduce the amount of variants to work with
     if not args.testmode:
 
@@ -141,12 +170,22 @@ def annotate(sample, args):
     if args.testmode:
         total_samples = 1
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
-    args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
-                                                         os.path.join(config.db_directory,
-                                                                      db_name_samples),
-                                                         total_samples))
+
+    # This adds the local database frequencies.
+    args_7 = shlex.shlex('python {0} {1}.txt {2} {3} {4}'.format(os.path.abspath(annotate_by_pos.__file__),
+                                                                 os.path.join(config.db_directory,
+                                                                              db_name_samples),
+                                                                 total_samples, "0,1,4,5",
+                                                                 str(21)))  # "0,1,4,5" are column positions
+    args_8 = shlex.shlex('bash {0} {1} {2} {3}'.format(config.itdseek, sample.bamlocation, config.reference,
+                                                       config.samtools))
+    args_9 = shlex.shlex('java -jar {0} '
+                         'extractFields '
+                         '- '
+                         '-e . -s ";" CHROM POS ID REF ALT QUAL FILTER DP2 LEN SEQ CLIPPING INSERTION VAF'.format(
+        config.snpsift))
     # This approach retains quotation marks and complete whitespace delimited args
-    slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
+    slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7, args_8, args_9])
     for arg in slx:
         arg.whitespace_split = True
 
@@ -166,14 +205,20 @@ def annotate(sample, args):
                 table.write(proc_7.communicate()[0])
                 sample.table_files.append(os.path.abspath(table.name))
 
-        # TODO: Switch to multiprocessing?
-        # jobs = multiprocessing.Pool(1)
-        # annotator = multiprocessing.Process()
-
         if proc_7.returncode == 0:
             sample.annotated = True
             print("Finished annotating sample {0}".format(sample.name))
             print(sample)
+
+        # Only do this if ITDSeek has been installed
+        # https://github.com/tommyau/itdseek
+        if config.itdseek is not None:
+            with open(sample.name + ".itdseek.table", "w+") as itdseek:
+                proc_8 = subprocess.Popen([a for a in args_8], shell=False, stdout=subprocess.PIPE)
+                proc_9 = subprocess.Popen([a for a in args_9], shell=False, stdin=proc_8.stdout, stdout=subprocess.PIPE)
+                itdseek.write(proc_9.communicate()[0])
+                sample.table_files.append(os.path.abspath(itdseek.name))
+
     else:
         # There was a problem with SelectVariants
         sample.annotated = False
@@ -223,24 +268,23 @@ def calc_coverage(sample):
     # with to_table.stderr:
     #    logdata(to_table.stderr)
 
-    if depth.returncode == 0:
-        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                               sample.name + '.requested.sample_summary')))
-        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
-                                                               sample.name + '.requested.sample_gene_summary')))
+    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                           sample.name + '.requested.sample_summary')))
+    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
+                                                           sample.name + '.requested.sample_gene_summary')))
 
-        # Annotate the interval summary file based on BED file targets
-        pipeline_utility.file_utility. \
-            add_symbols_to_interval_summary(config.targetfile, os.path.abspath(
-            os.path.join(workingDir, sample.name + "_coverage", sample.name + '.requested.sample_interval_summary')),
-                                            os.path.abspath(
-                                                os.path.join(workingDir, sample.name + "_coverage", sample.name +
-                                                             "annotated.sample_interval_summary")))
+    # Annotate the interval summary file based on BED file targets
+    pipeline_utility.file_utility.add_symbols_to_interval_summary(config.targetfile, os.path.abspath(
+        os.path.join(workingDir, sample.name + "_coverage", sample.name + '.requested.sample_interval_summary')),
+                                                                  os.path.abspath(
+                                                                      os.path.join(workingDir,
+                                                                                   sample.name + "_coverage",
+                                                                                   sample.name +
+                                                                                   ".annotated.sample_interval_summary")))
 
-        sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage", sample.name +
-                                                               "annotated.sample_interval_summary")))
-    else:
-        sample.error = depth.returncode
+    sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage", sample.name +
+                                                           ".annotated.sample_interval_summary")))
+    sample.error = depth.returncode
 
 
 def create_excel_table(sample):
@@ -257,60 +301,65 @@ def create_excel_table(sample):
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
-    if args.annotate and sample.annotated and args.coverage and not sample.error:
+    if args.annotate and sample.annotated:
         sample.finished = True
-    elif args.annotate and sample.annotated and args.coverage and sample.error:
+    elif args.annotate and not sample.annotated:
         sample.finished = False
         sys.stderr.write("Coverage was ordered but was not finished for sample {0}!\n".format(sample.name))
-    elif args.annotate and sample.annotated and not args.coverage and not sample.error:
-        sample.finished = True
 
 
-def single_sample(sample, finished_samples, unfinished_samples):
-    if args.annotate:
-        annotate(sample, args)
-        sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
-        sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
-        sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
-        sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
-        # sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
-    if args.coverage:
-        calc_coverage(sample)
-        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                         sample.name + ".sample_cumulative_coverage_counts"))
-        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                         sample.name + ".sample_cumulative_coverage_proportions"))
-        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                         sample.name + ".sample_interval_statistics"))
-        sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                         sample.name + ".sample_statistics"))
+def single_sample(sample):
+    try:
+        if args.annotate:
+            annotate(sample, args, config)
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".itdseek.table"))
+            sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
+            # sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
+        if args.coverage:
+            calc_coverage(sample)
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_counts"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_cumulative_coverage_proportions"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_interval_statistics"))
+            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+                                             sample.name + ".sample_statistics"))
 
-    create_excel_table(sample)
+        create_excel_table(sample)
+        # Delete the intermediary files, unnecessary files and files that have already been inserted
+        # into the output file.
+        if not args.keep:
+            for trashfile in sample.trash:
+                try:
+                    os.remove(trashfile)
+                # The file might've been already deleted or did not exist in the first place.
+                except(OSError) as oserror:
+                    sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
 
-    # Delete the intermediary files, unnecessary files and files that have already been inserted
-    # into the output file.
-    if not args.keep:
-        for trashfile in sample.trash:
-            try:
-                os.remove(trashfile)
-            # The file might've been already deleted or did not exist in the first place.
-            except(OSError) as oserror:
-                sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
-
-    if sample.finished:
-        print("Finished sample {0}".format(sample.name))
-        finished_samples.append(sample)
-    else:
-        print("Could not finish sample {0}".format(sample))
-        unfinished_samples.append(sample)
+        if sample.finished:
+            print("Finished sample {0}".format(sample.name))
+            # finished_samples.append(sample)
+        else:
+            print("Could not finish sample {0}".format(sample))
+            # unfinished_samples.append(sample)
+        return sample
+    except Exception as error:
+        sys.stderr.write("WORKER ERROR for sample: {0}\nTrace: ".format(sample))
+        traceback.print_exc(file=sys.stderr)
+        # raise error
 
 
 def run_samples(args, sample_list):
-    timeStart = time.time()
+    global cluster
+
+    timeStart = datetime.datetime.now()
     samples = list()
-    finished_samples = []
-    unfinished_samples = []
+    finished = JobStats()
     for sample in sample_list:
         location = pipeline_utility.file_utility.find_file(workingDir, sample + ".vcf.gz")[1]
         bamlocation = pipeline_utility.file_utility.find_file(workingDir, sample + ".bam")[1]
@@ -328,22 +377,28 @@ def run_samples(args, sample_list):
         print(sample)
     local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
                                   db_name_samples, total_samples, idx=".tbi")
-    for sample in samples:
-        # TODO: parallelize
-        single_sample(sample, finished_samples, unfinished_samples)
 
-    timeEnd = time.time()
+    pool = Pool(processes=args.ncpus)
+    return_samples = pool.map(single_sample, samples)
+
+    timeEnd = datetime.datetime.now()
+
+    for sample in return_samples:
+        print(sample)
+        if sample.finished:
+            finished.finished_samples.append(sample)
+        else:
+            finished.unfinished_samples.append(sample)
     print("-" * 40)
     print("Finish time: {0}".format(timeEnd))
-    print("Finished {0}/{1} of ordered/found samples in {2}:".format(len(finished_samples), len(samples),
-                                                                     timeStart - timeEnd))
+    print("Finished {0}/{1} of ordered/found samples in {2}:".format(len(finished.finished_samples), len(samples),
+                                                                     str(timeEnd - timeStart)))
     print("-" * 40)
-    for sample in samples:
-        print(sample)
-    if len(unfinished_samples) > 0:
-        for sample in unfinished_samples:
+    if len(finished.unfinished_samples) > 0:
+        for sample in finished.unfinished_samples:
             print("{0} is unfinished. Check for errors. ".format(sample))
-        print("You can rerun with --samples {0}".format(str(list(s.name for s in unfinished_samples)).strip("[]'")))
+        print("You can rerun with --samples {0}".format(
+            str(list(s.name for s in finished.unfinished_samples)).strip("[]'")))
 
 
 def main(args):
@@ -391,7 +446,7 @@ if __name__ == "__main__":
                                  "in the DB."
                                  "Useful in a test scenario when running large batches repeatedly or if the VCF is "
                                  "not supposed to be inserted into the DB for each run.",
-                            action="store_false", default=False)
+                            action="store_true", default=False)
         parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
                                                      "expects the DB to exist.",
                             action="store_true", default=False)
@@ -404,6 +459,8 @@ if __name__ == "__main__":
                             help="Calculates the coverage tables for the sample's order and adds it to "
                                  "the output excel file new pages.",
                             action="store_true", default=False)
+        parser.add_argument("--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
+                            action="store", type=int)
 
         args = parser.parse_args()
         main(args)
@@ -412,6 +469,6 @@ if __name__ == "__main__":
     finally:
         for p in processes:
             try:
-                p.terminate()
+                p.wait()
             except OSError:
                 pass  # process is already dead

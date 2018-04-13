@@ -247,4 +247,4 @@ class Gene(object):
     def __str__(self):
         if self._hgnc == self._name:
             return self._hgnc
-        return "{0} (HGNC: {1})".format(self._hgnc, self._name)
+        return "{0} (HGNC: {1})".format(self._name, self._hgnc)

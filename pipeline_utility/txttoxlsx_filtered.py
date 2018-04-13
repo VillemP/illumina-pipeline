@@ -29,8 +29,7 @@ PostprocessingList[dict()]
     [3]={'CN':Filter('CN', '"{0}.replace(" ", "_")"', '\'=HYPERLINK("http://localhost:10000/request={0}","{1}")\'',
         filter.FORMULA)} # in excel_notation, two args can be formatted {0} for cell.value and {1} for cell.rawdata
 
-Usage: python TSO_txttoxlsx.py input.txt input2.txt ... inputn.txt output.xlsx
-
+#Usage: python txttoxlsx_filtered.py input.txt input2.txt ... inputn.txt output.xlsx
 """
 
 import re
@@ -329,5 +328,5 @@ if __name__ == "__main__":
     filters = [dict([])]
     post = TruesightOnePostprocess(sys.argv[1:-1])
     formats = TruesightOneFormats(sys.argv[1:-1])
-    create_excel(sys.argv[-1], sys.argv[1:-1], filters, post, formats)
+    create_excel(sys.argv[-1], sys.argv[1:-1], filters)
     print("Done with excel file {}".format(sys.argv[-1]))

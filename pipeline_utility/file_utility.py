@@ -360,9 +360,9 @@ def write_refseq(geneslist, dict, refseq, out=sys.stdout):
         out.write("\t".join(line) + "\n")
 
 
-def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None):
+def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None, verbose=False):
     interval_list = []
-    with targetfile:
+    with open(targetfile) as targetfile:
         lines = targetfile.readlines()
         for line in lines:
             cols = line.split("\t")
@@ -380,12 +380,14 @@ def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None):
             else:
                 raise IndexError("The interval file contains too few columns or your file is not tab-delimited! "
                                  "The 4th column should contain the symbol for the interval e.g. 'CFTR.exon.3'.")
-    for i in interval_list:
-        sys.stderr.write(str(i) + "\n")
+    if verbose:
+        for i in interval_list:
+            sys.stderr.write(str(i) + "\n")
 
     with open(intervalsummary) as interv:
         summary = interv.readlines()
         output = []
+        header = ""
         for i, line in enumerate(summary):
             if i != 0:  # skip the header
                 cols = line.split("\t")
@@ -396,8 +398,14 @@ def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None):
                     if interval.between(range):
                         cols.insert(0, interval.symbol)
                 output.append("\t".join(cols))
+            else:
+                header = line
+                header = header.split("\t")
+                header.insert(0, "Location")
     if out is not None:
         with open(out, "w+") as outfile:
+            # Insert the header
+            outfile.write("\t".join(header))
             for line in output:
                 outfile.write(line)
     return output
@@ -427,7 +435,7 @@ if __name__ == "__main__":
     targetfile = subparsers.add_parser("targetfile")
     targetfile.add_argument("-g", "--genes", help="List of genes to be grepped and sorted into a new targetfile",
                             action="store", type=str, nargs="+")
-    targetfile.add_argument("-t", "--targetfile", help="The input targetfile.", type=argparse.FileType('r'))
+    targetfile.add_argument("-t", "--targetfile", help="The input targetfile.", type=str, action="store")
     targetfile.add_argument("--dict", help="The reference sequence dictionary file.", type=argparse.FileType('r'))
     targetfile.add_argument("-s", "--hgnc", help="The HGNC gene symbols reference file.", type=str, action="store")
     targetfile.add_argument("-r", "--tsogenes", help="The genes reference file for "

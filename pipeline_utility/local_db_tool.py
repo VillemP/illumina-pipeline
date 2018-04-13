@@ -42,17 +42,19 @@ def update_vcf_list(vcfs_list, config, copied, renamed, db_name_samples, total_s
         curr_len = 0
 
     with open(config.db_vcf_dir, "a+") as db_vcfs:
-        data = db_vcfs.readlines()
+        data = db_vcfs.read()
         # db_vcfs.seek(0)
 
         i = 0
 
         for current_pos, vcf in enumerate(copied + renamed):
+
             name = os.path.basename(vcf).rsplit('.')[0]
             line = "V:{0} {1}".format(name, vcf)
             i += 1
-            db_vcfs.write(line + "\n")
-    total_samples = curr_len + i
+            if not line in data:
+                db_vcfs.write(line + "\n")
+    total_samples = total_samples + curr_len + i
     db_name_samples = db_name_samples + str(total_samples)
     create_arguments_file(str(total_samples))
     print ("Updated {0} with {1} unique samples. "
