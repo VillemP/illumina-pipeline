@@ -351,6 +351,7 @@ def single_sample(sample):
     except Exception as error:
         sys.stderr.write("WORKER ERROR for sample: {0}\nTrace: ".format(sample))
         traceback.print_exc(file=sys.stderr)
+        return sample
         # raise error
 
 
