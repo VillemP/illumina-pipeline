@@ -25,6 +25,7 @@ table_format = "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{1
             "Covered_amber_genes",
             "Covered_amber_genes")
 
+
 class GenePanel(object):
     def __init__(self, panel_json, config=None):
         self.name = replace_illegal_chars(panel_json['Name'])
@@ -245,7 +246,7 @@ class CombinedPanels(dict):
         print("Writing the combined panels gene table to {0}".format(self.handler.config.gene_table))
         with open(self.handler.config.gene_table, "wb+") as f:
             tbl = self.table()
-            #print type(tbl)
+            # print type(tbl)
             for i, row in enumerate(tbl):
                 if i == 0:
                     f.write("\t".join([str(tupl) for tupl in row]) + "\n")
@@ -254,6 +255,17 @@ class CombinedPanels(dict):
         # Currently you have to use excel's find and replace function to get rid of the empty cel fillvalue
         # TODO: Create a postprocess for every column (i--> can be a 1-indexed column, just need the total columns)
         create_excel(self.handler.config.gene_table + ".xlsx", files=[self.handler.config.gene_table])
+
+        # Writes a tab-delimited list of GENE - PANELNAME associations for annotations.
+        with open(os.path.join(self.handler.config.json_dir, "TSO_genepanels.txt"), "w+") as f:
+            for panelcombo in self.iteritems():
+                for panel in panelcombo[1]:
+                    for gene in panel.tso_genes:
+                        # Choose the whole string if it's a string, only the first element if it is a tuple
+                        f.write("\t".join(
+                            [gene.name, "".join(panelcombo[0][0] if type(panelcombo[0]) is tuple else [name for name in
+                                                                                                       panelcombo[
+                                                                                                           0]])]) + "\n")
 
 
 def match_order_to_panels(key, combinedpanels, handler):

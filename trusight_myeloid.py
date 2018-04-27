@@ -321,14 +321,15 @@ def single_sample(sample):
         if args.coverage:
             calc_coverage(sample)
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_cumulative_coverage_counts"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_cumulative_coverage_proportions"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_interval_statistics"))
-            sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
-                                             sample.name + ".sample_statistics"))
+            # These are used with DiagnoseTargets
+            # sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+            #                                 sample.name + ".sample_cumulative_coverage_counts"))
+            # sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+            #                                 sample.name + ".sample_cumulative_coverage_proportions"))
+            # sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+            #                                 sample.name + ".sample_interval_statistics"))
+            # sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
+            #                                 sample.name + ".sample_statistics"))
 
         create_excel_table(sample)
         # Delete the intermediary files, unnecessary files and files that have already been inserted

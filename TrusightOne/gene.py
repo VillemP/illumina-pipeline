@@ -21,22 +21,27 @@ def load_hgnc_genes(hgncPath):
         sys.stderr.write("Loading HGNC genes from {0}:\n".format(hgncPath))
         with open(hgncPath) as hgnc:
             data = hgnc.readlines()
+            all_synonyms = set()
             for line in data:
-                clean_list = []
+                clean_set = set()
                 symbols = line.split("\t")
                 # Match every HGNC symbol to a list of synonyms
+
                 synonym_list = symbols[1].strip().split(',') + symbols[2].strip().split(',')
                 for synonym in synonym_list:
                     if synonym != "" and synonym is not None:
                         synonym = synonym.strip()
-                        if synonym == synonym.upper():
-                            clean_list.append(synonym)
-                        else:
-                            clean_list.append(synonym)
-                            clean_list.append(
+                        # Only use unique synonyms
+                        if synonym not in all_synonyms:
+                            all_synonyms.add(synonym)
+                            clean_set.add(synonym)
+                            clean_set.add(
                                 synonym.upper())  # The synonym contains lower-chars, add these to the posible synonym bank
+                        else:
+                            # sys.stderr.write("Found a non-unique synonym: {0}\n".format(synonym))
+                            pass
 
-                hgnc_genes[symbols[0]] = clean_list
+                hgnc_genes[symbols[0]] = clean_set
                 # Match every synonym to it's HGNC symbol to enable quicker searching
         for key, value in hgnc_genes.items():
             for symbol in value:  # values

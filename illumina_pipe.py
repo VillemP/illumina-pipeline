@@ -203,7 +203,7 @@ def annotate(sample, args, converter):
         disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
         disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
         hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
-        panels = os.path.join(config.custom_annotation_dir, "TSO_genepanels.txt")
+        panels = os.path.join(config.custom_annotation_dir, "TSO_exp_genepanels.txt")
 
         # Add extra annotations to the VCF
         args_0 = shlex.shlex("{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--hgnc "
@@ -567,7 +567,7 @@ def query_symbol(symbol_list):
 def main():
     print("Running TSO pipeline tool with {0}".format(args))
     global combinedpanels
-    global args
+
     samples = list()
     prefixes = list()
     yesChoice = ['yes', 'y']
