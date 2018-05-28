@@ -27,7 +27,7 @@ table_format = "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{1
 
 
 class GenePanel(object):
-    def __init__(self, panel_json, config=None):
+    def __init__(self, hgnchandler, panel_json, config=None):
         self.name = replace_illegal_chars(panel_json['Name'])
         self.id = panel_json['Panel_Id']
         self.diseasegroup = panel_json['DiseaseGroup']
@@ -39,6 +39,7 @@ class GenePanel(object):
         self.genes_json = None
         # the config file for the Jsonhandler and pipeline
         self.config = config
+        self.hgncHandler = hgnchandler
 
     def add_genes(self, unpacked_json):
         self.genes_json = unpacked_json
@@ -47,7 +48,7 @@ class GenePanel(object):
             # if str(gene['GeneSymbol']) in genesdict:
             #    self.genes.append(genesdict[gene['GeneSymbol']])
             # else:
-            g = Gene(self, gene)
+            g = Gene(self, json=gene, hgncHandler=self.hgncHandler)
             self.genes.append(g)
             # genesdict[gene['GeneSymbol']] = g
 
@@ -132,14 +133,16 @@ class CombinedPanels(dict):
     def __init__(self, handler):
         super(CombinedPanels, self).__init__([])
         self.handler = handler
+        self.hgncHandler = handler.hgncHandler
         if len(handler.panels) > 0:
-            all_genes_panel = GenePanel({'Name': 'All covered genes', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
+            all_genes_panel = GenePanel(self.hgncHandler,
+                                        {'Name': 'All covered genes', 'Panel_Id': '0000', 'DiseaseGroup': 'None',
                                          'DiseaseSubGroup': 'None', 'CurrentVersion': '1.3'})
-            if len(gene.hgnc_genes) == 0:
-                gene.load_hgnc_genes(handler.config.hgncPath)
-            if len(gene.tso_genes) == 0:
-                gene.load_tso_genes(handler.config.tsoGenes)
-            all_genes_panel.genes = gene.tso_genes
+            if len(self.hgncHandler.hgnc_genes) == 0:
+                self.hgncHandler.load_hgnc_genes(handler.config.hgncPath)
+            if len(self.hgncHandler.tso_genes) == 0:
+                self.hgncHandler.load_tso_genes(handler.config.tsoGenes)
+            all_genes_panel.genes = self.hgncHandler.tso_genes
             handler.panels.append(all_genes_panel)
             self[('ALL', 'KOGU')] = [panel for panel in handler.panels if panel.id == '0000']
             self[('VAM', 'ID', 'Intellectual disability')] = [panel for panel in handler.panels

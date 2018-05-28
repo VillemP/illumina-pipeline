@@ -163,6 +163,7 @@ def rename_file_idx(name_path, idx):
     new_name = ".".join(basename)
     return new_name
 
+
 def copy_vcf(files, dest, overwrite=False):
     try:
         os.makedirs(dest)
@@ -229,7 +230,7 @@ def count_unique_names(infile, col, seperator="\t"):
 # TODO: if the area covered is outside the regular chromosomes then the lexicographic sort will add
 # contigs inbetween the chromosomes e.g. chr6 chr6_hapt2 chr7, which is incompatible with the regular UCSC reference
 # file order (which has the extra contigs after chrY) and therefore GATK.
-def filter_targetfile(geneslist, targets, genecolumn=3, sort0=0, sort1=1, sort2=2):
+def filter_targetfile(hgncHandler, geneslist, targets, genecolumn=3, sort0=0, sort1=1, sort2=2):
     """
     Creates a custom sorted targetfile (default) or refseq from a sample-specific order of gene symbols.
     Default is equivalent to:
@@ -248,19 +249,23 @@ def filter_targetfile(geneslist, targets, genecolumn=3, sort0=0, sort1=1, sort2=
         target_line = []
         for element in line.split('\t'):
             target_line.append(element.strip())
+        assert len(
+            target_line) >= genecolumn, "You input bedfile is malformed! " \
+                                        "The bedfile should contain a column with gene symbols " \
+                                        "(CHR START STOP GENE)"
         # The last element of the target line is a string GENE_name.EXON_START_int.EXON_END_int
         # Get the gene name from the target
         gene_name = target_line[genecolumn].split(".")[0]  # The gene name is the first element in the column
         if i == 0:
             # If working with a large "unfiltered" refseq,
             # don't report not finding genes that exists in the refseq but not in the covered genes
-            g = gene.find_gene(gene_name, verbose=False)
+            g = hgncHandler.find_gene(gene_name, verbose=False)
         else:
             if g is not None:
                 if g.name != gene_name:  # Don't go looking for the gene again, it's the same gene but a different exon
-                    g = gene.find_gene(gene_name)  # The target is for a new gene
+                    g = hgncHandler.find_gene(gene_name)  # The target is for a new gene
             else:
-                g = gene.find_gene(gene_name)  # g was set to None (no gene found), therefore look for it
+                g = hgncHandler.find_gene(gene_name)  # g was set to None (no gene found), therefore look for it
         if g is not None:
             gene_name = g.name  # Ensure the HGNC name for this target, if none found, gene_name is the same as before
         target_line.append(gene_name)  # The final line of the target is now a converted HGNC symbol or
@@ -269,7 +274,7 @@ def filter_targetfile(geneslist, targets, genecolumn=3, sort0=0, sort1=1, sort2=
 
     for ge in geneslist:
         # The final element is the converted HGNC symbol, also convert the query symbol (ge) to a HGNC name
-        g = gene.find_gene(ge)  # Returns a gene object
+        g = hgncHandler.find_gene(ge)  # Returns a gene object
         if g is not None:
             gene_name = g.name  # Found a gene
         else:
@@ -340,23 +345,24 @@ def sort_refseq(ref_dict, refseq):
     return sorted_ref
 
 
-def write_targetfile(geneslist, targetfile, out=sys.stdout):
+def write_targetfile(hgncHandler, geneslist, targetfile, out=sys.stdout):
     with open(targetfile) as targetf:
         lines = targetf.readlines()
-        for line in filter_targetfile(geneslist, lines):
+        for line in filter_targetfile(hgncHandler, geneslist, lines):
             out.write("\t".join(line) + "\n")
 
 
-def write_refseq(geneslist, dict, refseq, out=sys.stdout):
+def write_refseq(hgncHandler, geneslist, dict, refseq, out=sys.stdout):
     global reflines
     if reflines is None:
         with open(refseq) as ref:
+            # lines = ref.readlines()
             reflines = ref.readlines()
-    gene_filtered_refseq = filter_targetfile(geneslist, reflines, genecolumn=12, sort0=2, sort1=4, sort2=5)
+    gene_filtered_refseq = filter_targetfile(hgncHandler, geneslist, reflines, genecolumn=12, sort0=2, sort1=4, sort2=5)
     # Definitely make sure our sort catches all sorting orders of refseq.
     # This will sort the refseq according to the reference dictionary file.
-    final_sort = sort_refseq(dict, gene_filtered_refseq)
-    for line in final_sort:
+    # final_sort = sort_refseq(dict, gene_filtered_refseq)
+    for line in gene_filtered_refseq:
         out.write("\t".join(line) + "\n")
 
 
@@ -410,6 +416,7 @@ def add_symbols_to_interval_summary(targetfile, intervalsummary, out=None, verbo
                 outfile.write(line)
     return output
 
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(prog="Annotation pipeline command-line file tool.")
@@ -459,8 +466,9 @@ if __name__ == "__main__":
         with open(args.source) as f:
             copy_vcf(f.readlines(), args.destination)
     if args.command == "targetfile":
-        gene.load_hgnc_genes(args.hgnc)
-        gene.load_tso_genes(args.tsogenes)
+        handler = gene.HgncHandler(args.hgnc, args.tsogenes)
+        # gene.load_hgnc_genes(args.hgnc)
+        #gene.load_tso_genes(args.tsogenes)
         # write_targetfile(args.genes, args.targetfile)
         write_refseq(args.genes, args.dict.name, args.targetfile.name)
     if args.command == "intervalsummary":

@@ -274,6 +274,7 @@ def create_excel_table(sample):
     formats = MiniseqFormats(sample.table_files)
     if sample.annotated:
         create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
+        sample.finished = True
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -368,7 +369,7 @@ def run_samples(args, sample_list):
         for sample in finished.unfinished_samples:
             print("{0} is unfinished. Check for errors. ".format(sample))
         print("You can rerun with --samples {0}".format(
-            str(list(s.name for s in finished.unfinished_samples)).strip("[]'")))
+            str(list(s.name for s in finished.unfinished_samples)).strip("[]").strip("'")))
 
 
 def main(args):

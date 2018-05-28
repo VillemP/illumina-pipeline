@@ -113,7 +113,7 @@ def update_database(samples, args, config, combine_variants, update_sample_stats
             vcfslist, config.vcf_storage_location, args.overwrite)
         dns, ts = update_vcf_list(vcfslist, config, copied, renamed, db_name_samples, total_samples)
         if len(copied + renamed) > 0:
-            update_sample_stats(dns=dns, ts=ts)
+            result = update_sample_stats(dns=dns, ts=ts)
             # If there were any variant files updated (copied) or new variants added to vcf list
             combine_variants()
-    pass
+    return result

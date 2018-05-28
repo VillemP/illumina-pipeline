@@ -5,23 +5,29 @@ import sys
 import TrusightOne.gene as gene
 
 
-class HgncConverter:
-    def __init__(self, hgnc_path):
+class HgncConverterTool:
+    def __init__(self, hgnc_path, hgnc_genes=None, hgncHandler=None):
+        if hgncHandler is not None:
+            self.hgncHandler = hgncHandler
+        else:
+            self.hgncHandler = gene.HgncHandler(hgnc_path, None)
         # Load our HGNC terms if not already loaded in the module
-        if len(gene.hgnc_genes) == 0:
+        if hgnc_genes is not None:
+            self.hgnc_genes = hgnc_genes
+        elif len(hgncHandler.hgnc_genes) == 0:
             self.hgnc_genes = self.load(hgnc_path)
         else:
-            self.hgnc_genes = gene.hgnc_genes
+            self.hgnc_genes = hgncHandler.hgnc_genes
 
     def load(self, hgnc_path):
-        if gene.hgnc_genes is not None:
-            if len(gene.hgnc_genes) == 0:
-                gene.load_hgnc_genes(hgnc_path)
+        if self.hgncHandler.hgnc_genes is not None:
+            if len(self.hgncHandler.hgnc_genes) == 0:
+                self.hgncHandler.load_hgnc_genes(hgnc_path)
 
-        return gene.hgnc_genes
+        return self.hgncHandler.hgnc_genes
 
     def convert(self, vcf=sys.stdin, output=sys.stdout, progress=False):
-        sys.stderr.write("Starting gene symbol conversion to HGNC terms for input {0}...\n".format(type(vcf)))
+        sys.stderr.write("Starting gene symbol conversion to HGNC terms for input {0}...\n".format(str(vcf)))
         # read in the vcf
         headers = 0
         variants = 0
@@ -44,8 +50,8 @@ class HgncConverter:
                 genelist = refgene[0].split('=')
                 symbol = genelist[1]
                 hgnc = None
-                if not gene.is_hgnc(symbol):
-                    hgnc = gene.synonyms_to_hgnc(symbol)
+                if not self.hgncHandler.is_hgnc(symbol):
+                    hgnc = self.hgncHandler.synonyms_to_hgnc(symbol)
                     if hgnc is not None:
                         for field in info:
                             if symbol in field:
@@ -55,10 +61,11 @@ class HgncConverter:
                     else:
                         pass  # Don't replace anything
                 variant[7] = ';'.join(info)
+                # print("\t".join(variant) + "\n")
                 output.write("\t".join(variant) + "\n")
                 variants += 1
             if progress:
-                if i % 4000 == 0:
+                if i % 400 == 0:
                     if i != 0:
                         sys.stderr.write("HGNC converter done with {0} lines...\n".format(i))
         sys.stderr.write("Finished the HGNC conversion with {0} genes replaced with a HGNC term in {1} variants."
@@ -67,12 +74,15 @@ class HgncConverter:
         sys.stderr.flush()
 
     def convert_gene(self, symbol):
-        if not gene.is_hgnc(symbol):
-            hgnc = gene.synonyms_to_hgnc(symbol)
+        if not self.hgncHandler.is_hgnc(symbol):
+            hgnc = self.hgncHandler.synonyms_to_hgnc(symbol)
             if hgnc is not None:
                 return hgnc
             else:
                 return symbol  # Don't replace anything
+
+    def __str__(self):
+        return "Converter with {0} genes.".format(len(self.hgnc_genes))
 
 
 if __name__ == "__main__":
@@ -93,7 +103,7 @@ if __name__ == "__main__":
         inp = sys.stdin
     if args.output == "-":
         out = sys.stdout
-    handler = HgncConverter(args.hgnc)
+    handler = HgncConverterTool(args.hgnc)
 
     if args.input != "-" and args.output != "-":
         with open(args.input) as infile:

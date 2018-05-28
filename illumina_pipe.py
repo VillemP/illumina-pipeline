@@ -1,13 +1,15 @@
 import argparse
+import atexit
 import os
 import shlex
 import subprocess
 import sys
 import time
 import traceback
+from functools import partial
 from tempfile import NamedTemporaryFile
 
-import parmap
+import pathos
 
 import TrusightOne.gene
 import TrusightOne.gene_panel
@@ -19,8 +21,8 @@ from TrusightOne.jsonhandler import JsonHandler
 from TrusightOne.tso_excel_filters import TruesightOneFilters
 from TrusightOne.tso_excel_filters import TruesightOneFormats
 from TrusightOne.tso_excel_filters import TruesightOnePostprocess
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, converthgnc, local_db_tool
-from pipeline_utility.converthgnc import HgncConverter
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, local_db_tool
+from pipeline_utility.converthgnc import HgncConverterTool
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
 try:
@@ -82,41 +84,43 @@ def update_sample_stats(dns, ts):
 
     db_name_samples = dns
     total_samples = ts
+    return dns, ts
 
 
 def combine_variants(vcflist=config.db_vcf_dir):
     global args
-
     # Combining variant files into a single reference to be used for statistical purposes
-    args = shlex.split('java -Xmx10g -jar {0} '
-                       '-T CombineVariants '
-                       '-R {1} '
-                       '-V {2} '
-                       '-o {3} '
-                       '-log {4} '
-                       '-nt {5} '
-                       '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
-                                                               os.path.join(config.db_directory,
-                                                                            db_name_samples + ".vcf"), config.logfile,
-                                                               args.ncpus))
+    combine = shlex.split('java -Xmx10g -jar {0} '
+                          '-T CombineVariants '
+                          '-R {1} '
+                          '-V {2} '
+                          '-o {3} '
+                          '-log {4} '
+                          '-nt {5} '
+                          '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
+                                                                  os.path.join(config.db_directory,
+                                                                               db_name_samples + ".vcf"),
+                                                                  config.logfile,
+                                                                  args.ncpus))
 
-    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(combine, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
 
     logdata(proc.stderr)
     proc.wait()
 
-    args = shlex.split('java -Xmx10g -jar {0} '
-                       '-T VariantsToTable '
-                       '-R {1} '
-                       '-V {2}{3}.vcf '
-                       '-F CHROM -F POS -F REF -F ALT -F AC -F HET -F HOM-VAR '
-                       '--splitMultiAllelic --showFiltered '
-                       '-o {4}{5}.txt '.format(config.toolkit, config.reference, config.db_directory, db_name_samples,
-                                               config.db_directory,
-                                               db_name_samples, config.logfile))
+    variantstotable = shlex.split('java -Xmx10g -jar {0} '
+                                  '-T VariantsToTable '
+                                  '-R {1} '
+                                  '-V {2}{3}.vcf '
+                                  '-F CHROM -F POS -F REF -F ALT -F AC -F HET -F HOM-VAR '
+                                  '--splitMultiAllelic --showFiltered '
+                                  '-o {4}{5}.txt '.format(config.toolkit, config.reference, config.db_directory,
+                                                          db_name_samples,
+                                                          config.db_directory,
+                                                          db_name_samples, config.logfile))
 
-    proc = subprocess.Popen(args, shell=False, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(variantstotable, shell=False, stderr=subprocess.PIPE)
     processes.append(proc)
     logdata(proc.stderr)
     proc.wait()
@@ -131,16 +135,16 @@ def genderCheck(args, samples):
         vcflist = vcflist + "--variant:{0} {1}\\".format(sample.name, sample.vcflocation)
         # print vcflist
     if not args.testmode:
-        args = shlex.split('java -Xmx10g -jar {0} '
-                           '-T CombineVariants '
-                           '-R {1} \\'
-                           '{2} \\'
-                           '-o {3} \\'
-                           '-log {4} \\'
-                           '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
-                                                                   out, config.logfile))
+        combine = shlex.split('java -Xmx10g -jar {0} '
+                              '-T CombineVariants '
+                              '-R {1} \\'
+                              '{2} \\'
+                              '-o {3} \\'
+                              '-log {4} \\'
+                              '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
+                                                                      out, config.logfile))
 
-        proc = subprocess.Popen(args, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(combine, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         processes.append(proc)
         logdata(proc.stderr)
         logdata(proc.stdout)
@@ -163,9 +167,10 @@ def annotate(sample, args, converter):
     :type sample: pipeline_utility.sample as sample
     """
     print("Starting annotation for file: {0}".format(sample.name))
-    global total_samples
-    global db_name_samples
+    total_samples = sample.ts
+    db_name_samples = sample.dns
 
+    print(converter)
     # A hack to have VcfManipulator insert an annotation, but it takes in a file object if accessed from subprocess
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".genes.") as tempfile:
         sample.genes_tempfile = tempfile
@@ -206,8 +211,9 @@ def annotate(sample, args, converter):
         panels = os.path.join(config.custom_annotation_dir, "TSO_exp_genepanels.txt")
 
         # Add extra annotations to the VCF
-        args_0 = shlex.shlex("{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--hgnc "
-                                                          + config.hgncPath, "--input -", "--output -", "--progress"))
+        args_0 = shlex.shlex(
+            "{0} {1} {2} {3} {4}".format("python " + os.path.abspath(pipeline_utility.converthgnc.__file__), "--hgnc "
+                                         + config.hgncPath, "--input -", "--output -", "--progress"))
         args_1 = shlex.shlex(
             "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
         args_2 = shlex.shlex(
@@ -242,15 +248,17 @@ def annotate(sample, args, converter):
                                                                           db_name_samples),
                                                              total_samples))
         # This approach retains quotation marks and complete whitespace delimited args
-        slx = list([args_0, args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
+        slx = list([args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
         for arg in slx:
             arg.whitespace_split = True
 
         # try:
         with open(sample.name + ".hg19_multianno.vcf") as annotated:
             proc_0 = subprocess.Popen([a for a in args_0], shell=False, stdin=annotated, stdout=subprocess.PIPE)
+
             proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE)
+            # converter.convert(vcf=annotated)
             proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE)
             proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
@@ -280,6 +288,8 @@ def annotate(sample, args, converter):
             for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
                 processes.append(proc)
                 # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
+            exit_codes = [p.wait() for p in proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8]
+            return exit_codes
 
 
 def calc_coverage(sample):
@@ -287,12 +297,13 @@ def calc_coverage(sample):
     # sort -k1,1V -k2,2n -k3,3n < ${covdir}${prefix}.genes.bed > ${covdir}${prefix}.genes.sorted.bed
     # TODO: replace with BEDtools?
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".target.", suffix=".bed") as temptarget:
-        pipeline_utility.file_utility.write_targetfile(sample.order_list, targetfile=config.targetfile,
+        pipeline_utility.file_utility.write_targetfile(handler.hgncHandler, sample.order_list,
+                                                       targetfile=config.targetfile,
                                                        out=temptarget.file)
     sample.temptargetfile = temptarget.name
 
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".reference.", suffix=".refseq") as temprefseq:
-        pipeline_utility.file_utility.write_refseq(sample.order_list, config.reference_dict,
+        pipeline_utility.file_utility.write_refseq(handler.hgncHandler, sample.order_list, config.reference_dict,
                                                    config.refseq, out=temprefseq.file)
 
     sample.temprefseq = temprefseq.name
@@ -339,14 +350,15 @@ def calc_coverage(sample):
     # with open(table_name, "wb+") as f:
     #    f.write(to_table.communicate()[0])
     # diagnose.wait()
-    depth.wait()
+    return_code = depth.wait()
     # to_table = subprocess.Popen(table_args, shell=False, stdout=subprocess.PIPE)
 
-    if depth.returncode == 0:
+    if return_code == 0:
         sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                                sample.name + '.requested.sample_summary')))
         sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                                sample.name + '.requested.sample_gene_summary')))
+    return return_code
 
 
 def create_excel_table(sample):
@@ -408,7 +420,7 @@ def getGeneOrder(samples, args):
                             sample.panels.append((panel, orderkey))
                 # Orderkey is the gene name
                 for orderkey in rows[sample.name][1]:
-                    result = TrusightOne.gene.find_gene(orderkey)  # The gene name
+                    result = handler.hgncHandler.find_gene(orderkey)  # The gene name
                     if result is not None:
                         sample.genes.append((result, "ORDERED"))
             else:
@@ -431,11 +443,12 @@ def getGeneOrder(samples, args):
             sys.exit(1)
 
 
-def single_sample(sample, converter):
-    global args
+def single_sample(converter, sample):
+    # global args
     try:
+        print("Entering single sample: {0}".format(sample))
         if args.annotate:
-            annotate(sample, args, converter)
+            return_annotate = annotate(sample, args, converter)
             sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
@@ -443,7 +456,7 @@ def single_sample(sample, converter):
             sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
             sample.trash.append(sample.genes_tempfile.name)
         if args.coverage:
-            calc_coverage(sample)
+            return_coverage = calc_coverage(sample)
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                              sample.name + ".sample_cumulative_coverage_counts"))
@@ -473,20 +486,21 @@ def single_sample(sample, converter):
         else:
             print("Could not finish sample {0}".format(sample))
             # unfinished_samples.append(sample)
-
+        return sample
     except Exception as error:
         sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
         traceback.print_exc(file=sys.stderr)
         raise error
 
+    finally:
+        # return sample
+        pass
 
-def run_samples(sample_list):
-    global args
+
+def run_samples(sample_list, args, pool):
     if not handler.loaded:
         handler.get_all_panels(False)  # Get local data
 
-    finished_samples = []
-    unfinished_samples = []
     samples = list()
 
     for sample in sample_list:
@@ -505,15 +519,28 @@ def run_samples(sample_list):
     if args.gendercheck:
         genderCheck(args, samples)
     getGeneOrder(samples, args)
-    converter = HgncConverter(config.hgncPath)
+    converter = HgncConverterTool(config.hgncPath, hgncHandler=handler.hgncHandler)
     # DB is already updated
     if not args.old:
         # update_database(samples, args.no_replace, args.testmode)
-        local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
+        dns, ts = local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
                                       db_name_samples, total_samples)
 
-    multiprocess = parmap.map(single_sample, samples, converter, pm_pbar=True, pm_processes=args.ncpus)  #
+        for sample in samples:
+            sample.dns = dns
+            sample.ts = ts
 
+    # mp = parmap.map(single_sample, samples, converter, pm_pbar=True, pm_processes=int(args.ncpus))  #
+    # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
+    func = partial(single_sample, converter)
+    #    mp = pool.map(func, samples)
+
+    #    pool.close()
+    #    pool.join()
+    mp = [func(s) for s in samples]
+
+    finished_samples = [s for s in mp if s.finished == True]
+    unfinished_samples = [s for s in mp if s.finished == False]
 
     print("-" * 40)
     print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
@@ -528,12 +555,12 @@ def run_samples(sample_list):
 
 def query_symbol(symbol_list):
     for inp in symbol_list:
-        synonyms = TrusightOne.gene.find_synonyms(inp)
-        print("'{0}' is HGNC declared symbol: {1}".format(inp, TrusightOne.gene.is_hgnc(inp)))
+        synonyms = handler.hgncHandler.find_synonyms(inp)
+        print("'{0}' is HGNC declared symbol: {1}".format(inp, handler.hgncHandler.is_hgnc(inp)))
         if len(synonyms) > 0:
             print("HGNC synonyms for {0}: {1}".format(inp, synonyms))
 
-        result = TrusightOne.gene.find_gene(inp)
+        result = handler.hgncHandler.find_gene(inp)
         if result is not None:
             print("Gene is covered on TSO as {1}.\n"
                   "HGNC symbol: {0}".format(result, result._name))
@@ -564,8 +591,9 @@ def query_symbol(symbol_list):
         print("-" * 40)
 
 
-def main():
+def main(args, pool):
     print("Running TSO pipeline tool with {0}".format(args))
+    print("Directory: ".format(os.getcwd()))
     global combinedpanels
 
     samples = list()
@@ -592,7 +620,7 @@ def main():
         # This means args.legacy is False and we already have our list of prefixes
         if len(prefixes) == 0 and not args.legacy:
             prefixes = pipeline_utility.file_utility.write_prefixes_list(workingDir, "prefixes.list")
-        run_samples(prefixes)
+        run_samples(prefixes, args, pool)
 
     elif args.old:
         prefixes, vcfslist, bamlist = local_db_tool.create_configs()
@@ -602,7 +630,7 @@ def main():
                                       total_samples)
     elif args.samples:
         print("Input is {0} samples: {1}".format(len(args.samples), "\t".join(args.samples)))
-        run_samples(args.samples)
+        run_samples(args.samples, args, pool)
     elif args.json:
         while True:
             try:
@@ -669,8 +697,13 @@ class Logger(object):
         self.terminal.flush()
 
 
+def cleanup(processpool):
+    processpool.terminate()
+    print("Exiting...")
+
+
 if __name__ == "__main__":
-    global args
+    global args  # A global variable that is not edited after this function (for multithreaded functions)
     parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-b", "--batch",
@@ -726,7 +759,7 @@ if __name__ == "__main__":
                                                                                    "for running legacy bash scripts.")
     parser.add_argument("-g", "--gendercheck", default=False, action="store_true",
                         help="Calculate the heterogenity for each sample and output it as a table.")
-    parser.add_argument("--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
+    parser.add_argument("-m", "--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
                         action="store", type=int)
 
     args = parser.parse_args()
@@ -735,14 +768,17 @@ if __name__ == "__main__":
     if args.samples is not None and args.panels is None:
         parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
-    main()
+    # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
+    pool = pathos.multiprocessing.ProcessPool(ncpus=args.ncpus)
+    main(args, pool)
 
-    for p in processes:
-        try:
-            if p is not None:
-                sys.stderr.write("Killing subprocesses {0}\n".format(p.pid))
-                p.terminate()
-        except OSError:
-            pass  # process is already dead
-        finally:
-            sys.stderr.flush()
+    atexit.register(cleanup, pool)
+#    for p in processes:
+#        try:
+#            if p is not None:
+#                sys.stderr.write("Killing subprocesses {0}\n".format(p.pid))
+#                p.terminate()
+#        except OSError:
+#            pass  # process is already dead
+#        finally:
+#            sys.stderr.flush()

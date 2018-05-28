@@ -22,6 +22,7 @@ class JsonHandler(JsonHandlerBase):
         self.panel_index = self.load_index(db_dir)
         self.json_dir = db_dir
         self.pbar = None
+        self.hgncHandler = gene.HgncHandler(config.hgncPath, config.tsoGenes)
 
     @property
     def loaded(self):
@@ -68,7 +69,7 @@ class JsonHandler(JsonHandlerBase):
             for i, panel in enumerate(panels):
                 file_location = panel[1]
                 with open(file_location, "r") as f:
-                    newpanel = GenePanel(json.load(f), self.config)
+                    newpanel = GenePanel(self.hgncHandler, json.load(f), self.config)
                     genelist = file_utility.find_filetype(os.path.dirname(file_location), ".genes")
                     for genes in genelist:
                         with open(genes[1], "r") as gene_json:
@@ -101,10 +102,10 @@ class JsonHandler(JsonHandlerBase):
             self.pbar = None
 
     def get_all_panels(self, external=True):
-        if len(gene.hgnc_genes) == 0:
-            gene.load_hgnc_genes(self.config.hgncPath)
-        if len(gene.tso_genes) == 0:
-            gene.load_tso_genes(self.config.tsoGenes)
+        if len(self.hgncHandler.hgnc_genes) == 0:
+            self.hgncHandler.load_hgnc_genes(self.config.hgncPath)
+        if len(self.hgncHandler.tso_genes) == 0:
+            self.hgncHandler.load_tso_genes(self.config.tsoGenes)
         update_index = False
         if external:
             json_response, data = self.query("https://panelapp.genomicsengland.co.uk/WebServices/list_panels",
@@ -115,7 +116,7 @@ class JsonHandler(JsonHandlerBase):
                 print("Creating new index file panel.index")
                 self.save_index(data, self.json_dir)
             for panel in data['result']:
-                g_panel = GenePanel(panel, self.config)
+                g_panel = GenePanel(self.hgncHandler, panel, self.config)
 
                 local = [l for l in local_panels if g_panel.name == l[0].split('.')[0]]
                 if len(local) == 0:
@@ -130,7 +131,7 @@ class JsonHandler(JsonHandlerBase):
                     if len(match) == 1:
                         # Creates a temporary panel object from json for comparison with the new panel object
                         # Serves the same purpose as self.load_panels(), latest_panels comparing which is slower
-                        old_panel = GenePanel(match[0])
+                        old_panel = GenePanel(self.hgncHandler, match[0])
                         # Download data for only new panels based on panel version
                         if TrusightOne.gene_panel.compare_versions(g_panel, old_panel):
                             print("Found a panel {0} with new version ({1} vs {2})."
