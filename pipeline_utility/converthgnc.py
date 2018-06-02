@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
 import argparse
 import os
 import sys
@@ -14,10 +16,10 @@ class HgncConverterTool:
         # Load our HGNC terms if not already loaded in the module
         if hgnc_genes is not None:
             self.hgnc_genes = hgnc_genes
-        elif len(hgncHandler.hgnc_genes) == 0:
+        elif len(self.hgncHandler.hgnc_genes) == 0:
             self.hgnc_genes = self.load(hgnc_path)
         else:
-            self.hgnc_genes = hgncHandler.hgnc_genes
+            self.hgnc_genes = self.hgncHandler.hgnc_genes
 
     def load(self, hgnc_path):
         if self.hgncHandler.hgnc_genes is not None:
@@ -49,13 +51,13 @@ class HgncConverterTool:
                 refgene = filter(lambda x: 'Gene.refGene=' in x, info)
                 genelist = refgene[0].split('=')
                 symbol = genelist[1]
-                hgnc = None
-                if not self.hgncHandler.is_hgnc(symbol):
-                    hgnc = self.hgncHandler.synonyms_to_hgnc(symbol)
-                    if hgnc is not None:
+
+                hgnc = self.hgncHandler.find_gene(symbol)
+                if hgnc is not None:
+                    if hgnc.name != symbol:
                         for field in info:
                             if symbol in field:
-                                edited[symbol] = hgnc  # Log
+                                edited[symbol] = hgnc.name  # Log
                                 edited_variants += 1
                                 field.replace(symbol, hgnc)
                     else:
@@ -103,6 +105,7 @@ if __name__ == "__main__":
         inp = sys.stdin
     if args.output == "-":
         out = sys.stdout
+    sys.stderr.write(str(args) + "\n")
     handler = HgncConverterTool(args.hgnc)
 
     if args.input != "-" and args.output != "-":

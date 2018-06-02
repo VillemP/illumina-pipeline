@@ -352,7 +352,7 @@ def write_targetfile(hgncHandler, geneslist, targetfile, out=sys.stdout):
             out.write("\t".join(line) + "\n")
 
 
-def write_refseq(hgncHandler, geneslist, dict, refseq, out=sys.stdout):
+def write_refseq(hgncHandler, geneslist, refseq, refdict=None, out=sys.stdout):
     global reflines
     if reflines is None:
         with open(refseq) as ref:
@@ -361,7 +361,7 @@ def write_refseq(hgncHandler, geneslist, dict, refseq, out=sys.stdout):
     gene_filtered_refseq = filter_targetfile(hgncHandler, geneslist, reflines, genecolumn=12, sort0=2, sort1=4, sort2=5)
     # Definitely make sure our sort catches all sorting orders of refseq.
     # This will sort the refseq according to the reference dictionary file.
-    # final_sort = sort_refseq(dict, gene_filtered_refseq)
+    # final_sort = sort_refseq(refdict, gene_filtered_refseq)
     for line in gene_filtered_refseq:
         out.write("\t".join(line) + "\n")
 
@@ -448,6 +448,9 @@ if __name__ == "__main__":
     targetfile.add_argument("-r", "--tsogenes", help="The genes reference file for "
                                                      "genes covered on the sequencing panel", type=str, action="store")
     targetfile.add_argument("-o", "--output", help="The output file to be created", action="store", type=str)
+    targetfile.add_argument("--bed",
+                            help="The interval file (should also contain the symbols corresponding to each"
+                                 " interval.", type=str, action="store")
 
     intervalsummary = subparsers.add_parser("intervalsummary")
     intervalsummary.add_argument("--interval",
@@ -465,12 +468,15 @@ if __name__ == "__main__":
     if args.command == "copyvcfs":
         with open(args.source) as f:
             copy_vcf(f.readlines(), args.destination)
-    if args.command == "targetfile":
+    if args.command == "refseq":
         handler = gene.HgncHandler(args.hgnc, args.tsogenes)
         # gene.load_hgnc_genes(args.hgnc)
         #gene.load_tso_genes(args.tsogenes)
         # write_targetfile(args.genes, args.targetfile)
         write_refseq(args.genes, args.dict.name, args.targetfile.name)
+    if args.command == "targetfile":
+        handler = gene.HgncHandler(args.hgnc, args.tsogenes)
+        write_targetfile(handler, args.genes, args.bed)
     if args.command == "intervalsummary":
         product = add_symbols_to_interval_summary(args.bed, args.summary)
         if args.out == "stdout":

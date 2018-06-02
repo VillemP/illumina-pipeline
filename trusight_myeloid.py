@@ -1,4 +1,5 @@
 import argparse
+import atexit
 import datetime
 import os
 import shlex
@@ -356,6 +357,11 @@ def single_sample(sample):
         # raise error
 
 
+def cleanup(processpool):
+    processpool.terminate()
+    print("Exiting...")
+
+
 def run_samples(args, sample_list):
     global cluster
 
@@ -381,6 +387,7 @@ def run_samples(args, sample_list):
                                   db_name_samples, total_samples, idx=".tbi")
 
     pool = Pool(processes=args.ncpus)
+    atexit.register(cleanup, pool)
     return_samples = pool.map(single_sample, samples)
 
     timeEnd = datetime.datetime.now()
@@ -466,11 +473,6 @@ if __name__ == "__main__":
 
         args = parser.parse_args()
         main(args)
+
     except Exception:
         raise
-    finally:
-        for p in processes:
-            try:
-                p.wait()
-            except OSError:
-                pass  # process is already dead

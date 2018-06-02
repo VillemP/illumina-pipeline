@@ -63,7 +63,7 @@ def update_vcf_list(vcfs_list, config, copied, renamed, db_name_samples, total_s
     return db_name_samples, total_samples
 
 
-def combine_variants(out, processes, logdata, config, vcflist):
+def combine_variants(out, processes, logdata, config, vcflist, ncpus=1):
     # Combining variant files into a single reference to be used for statistical purposes
     args = shlex.split('java -Xmx10g -jar {0} '
                        '-T CombineVariants '
@@ -71,8 +71,9 @@ def combine_variants(out, processes, logdata, config, vcflist):
                        '-V {2} '
                        '-o {3} '
                        '-log {4} '
+                       '-nt {5} '
                        '--genotypemergeoption UNIQUIFY'.format(config.toolkit, config.reference, vcflist,
-                                                               out, config.logfile))
+                                                               out, config.logfile, ncpus))
 
     proc = os.subprocess.Popen(args, shell=False, stderr=os.subprocess.PIPE)
     processes.append(proc)
@@ -100,6 +101,7 @@ def combine_variants(out, processes, logdata, config, vcflist):
 
 def update_database(samples, args, config, combine_variants, update_sample_stats, db_name_samples, total_samples,
                     idx=".idx"):
+    result = (db_name_samples, total_samples)
     if not args.testmode:
         assert len(samples) > 0, "List of samples to be updated into the database cannot be empty!"
         vcfslist = list()
@@ -115,5 +117,5 @@ def update_database(samples, args, config, combine_variants, update_sample_stats
         if len(copied + renamed) > 0:
             result = update_sample_stats(dns=dns, ts=ts)
             # If there were any variant files updated (copied) or new variants added to vcf list
-            combine_variants()
+            combine_variants()  # A hook
     return result

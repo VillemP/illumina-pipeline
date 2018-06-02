@@ -1,5 +1,6 @@
 import argparse
 import atexit
+import datetime
 import os
 import shlex
 import subprocess
@@ -21,7 +22,7 @@ from TrusightOne.jsonhandler import JsonHandler
 from TrusightOne.tso_excel_filters import TruesightOneFilters
 from TrusightOne.tso_excel_filters import TruesightOneFormats
 from TrusightOne.tso_excel_filters import TruesightOnePostprocess
-from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, local_db_tool
+from pipeline_utility import vcf_manipulator, adsplit, annotate_by_pos, db_update, local_db_tool, converthgnc
 from pipeline_utility.converthgnc import HgncConverterTool
 from pipeline_utility.txttoxlsx_filtered import create_excel
 
@@ -82,7 +83,7 @@ def update_sample_stats(dns, ts):
     global db_name_samples
     global total_samples
 
-    db_name_samples = dns
+    db_name_samples = db_name_samples + str(dns)  # Used in the db combine_variants
     total_samples = ts
     return dns, ts
 
@@ -132,7 +133,7 @@ def genderCheck(args, samples):
     out = project + ".merged.vcf"
     vcflist = ""
     for sample in samples:
-        vcflist = vcflist + "--variant:{0} {1}\\".format(sample.name, sample.vcflocation)
+        vcflist = vcflist + "--variant:{0} {1} \\".format(sample.name, sample.vcflocation)
         # print vcflist
     if not args.testmode:
         combine = shlex.split('java -Xmx10g -jar {0} '
@@ -168,128 +169,126 @@ def annotate(sample, args, converter):
     """
     print("Starting annotation for file: {0}".format(sample.name))
     total_samples = sample.ts
-    db_name_samples = sample.dns
 
     print(converter)
     # A hack to have VcfManipulator insert an annotation, but it takes in a file object if accessed from subprocess
-    with NamedTemporaryFile(delete=False, prefix=sample.name + ".genes.") as tempfile:
-        sample.genes_tempfile = tempfile
+    sample.genes_tempfile = NamedTemporaryFile(delete=False, prefix=sample.name + ".genes.").name
+    with open(sample.genes_tempfile, "w") as tempfile:
         for line in sample.final_order:
-            tempfile.file.write(line + "\n")
-        tempfile.file.seek(0)
+            tempfile.write(line + "\n")
+        tempfile.seek(0)
 
-        if not args.testmode:
-            sample.reduced_variants_vcf = sample.vcflocation
+    if not args.testmode:
+        sample.reduced_variants_vcf = sample.vcflocation
 
-            annotation = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
-                                     '-out "{3}" '
-                                     "-remove -protocol "
-                                     "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
-                                     "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                                     "-operation g,f,f,f,f,f,f "
-                                     "-nastring . "
-                                     "-otherinfo "
-                                     "-vcfinput".format(config.annotator,
-                                                        sample.reduced_variants_vcf.replace(" ", "\\ "),
-                                                        config.annotation_db,
-                                                        sample.name))
+        annotation = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
+                                 '-out "{3}" '
+                                 "-remove -protocol "
+                                 "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
+                                 "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                 "-operation g,f,f,f,f,f,f "
+                                 "-nastring . "
+                                 "-otherinfo "
+                                 "-vcfinput".format(config.annotator,
+                                                    sample.reduced_variants_vcf.replace(" ", "\\ "),
+                                                    config.annotation_db,
+                                                    sample.name))
 
-            print(args)
-            proc = subprocess.Popen(annotation, shell=False, stderr=subprocess.PIPE)
-            with proc.stderr:
-                # logdata(proc.stderr)
-                pass
+        print(annotation)
+        proc = subprocess.Popen(annotation, shell=False, stderr=subprocess.PIPE)
+        with proc.stderr:
+            logdata(proc.stderr)
+            pass
+        processes.append(proc)
+
+        proc.wait()
+
+    # annotator output file --> add custom and external gene name based annotations
+    # (if VARIANT.refGene == SYMBOL, insert custom_list[SYMBOL]=...) (vcfmanipulator)
+    disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
+    disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
+    hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
+    panels = os.path.join(config.custom_annotation_dir, "TSO_exp_genepanels.txt")
+
+    # Add extra annotations to the VCF
+    args_0 = shlex.shlex(
+        "{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--hgnc "
+                                     + config.hgncPath, "--input -", "--output -", "--progress"))
+    args_1 = shlex.shlex(
+        "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
+    args_2 = shlex.shlex(
+        "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_nr, "Disease.nr"))
+    args_3 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), hpo, "HPO"))
+    args_4 = shlex.shlex(
+        "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), panels, "Panel"))
+    args_gene_panel = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__),
+                                                       sample.genes_tempfile,
+                                                       "GeneReq"))
+    # Extract the fields from the annotated VCF
+    args_5 = shlex.shlex('java -Xmx4g -jar {0} '
+                         'extractFields '
+                         '- '
+                         '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         'Gene.refGene GeneReq Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
+                         '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
+                         'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
+                         'CLNDSDB CLNDSDBID '
+                         'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
+                         .format(config.snpsift))
+    # if args.testmode:
+    #    db_name_samples = sample.dns + total_samples
+    # Splits the last column (allele 1 depth, allele 2 depth into 3 columns:
+    # (reference reads, variant reads, percentage),
+    args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
+    # Adds the custom local DB frequencies to the n'th column (default is the 23. column)
+    args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
+                                                         os.path.join(config.db_directory,
+                                                                      str(sample.dns)),
+                                                         total_samples))
+    # This approach retains quotation marks and complete whitespace delimited args
+    slx = list([args_0, args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
+    for arg in slx:
+        arg.whitespace_split = True
+
+    # try:
+    with open(sample.name + ".hg19_multianno.vcf") as annotated:
+        proc_0 = subprocess.Popen([a for a in args_0], shell=False, stdin=annotated, stdout=subprocess.PIPE)
+
+        proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        # converter.convert(vcf=annotated)
+        proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+
+        proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
+                                           shell=False, stdin=proc_4.stdout,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc_6 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Proc 6 takes in a table
+        proc_7 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
+
+        with open(sample.name + ".annotated.table", "w+") as table:
+            # converter.convert(vcf=proc_8.communicate()[0], output=table) # converts the VCF
+            table.write(proc_8.communicate()[0])
+
+            sample.table_files.append(os.path.abspath(table.name))
+            if proc_8.returncode == 0:
+                sample.annotated = True
+                print("Finished annotating sample {0}".format(sample.name))
+                print(sample)
+        for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
             processes.append(proc)
-
-            proc.wait()
-
-        # annotator output file --> add custom and external gene name based annotations
-        # (if VARIANT.refGene == SYMBOL, insert custom_list[SYMBOL]=...) (vcfmanipulator)
-        disease_name = os.path.join(config.custom_annotation_dir, "gene.omim_disease_name.synonyms.txt")
-        disease_nr = os.path.join(config.custom_annotation_dir, "gene.disease.txt")
-        hpo = os.path.join(config.custom_annotation_dir, "gene.hpoterm.txt")
-        panels = os.path.join(config.custom_annotation_dir, "TSO_exp_genepanels.txt")
-
-        # Add extra annotations to the VCF
-        args_0 = shlex.shlex(
-            "{0} {1} {2} {3} {4}".format("python " + os.path.abspath(pipeline_utility.converthgnc.__file__), "--hgnc "
-                                         + config.hgncPath, "--input -", "--output -", "--progress"))
-        args_1 = shlex.shlex(
-            "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
-        args_2 = shlex.shlex(
-            "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_nr, "Disease.nr"))
-        args_3 = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), hpo, "HPO"))
-        args_4 = shlex.shlex(
-            "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), panels, "Panel"))
-        args_gene_panel = shlex.shlex("{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__),
-                                                           sample.genes_tempfile.name,
-                                                           "GeneReq"))
-        # Extract the fields from the annotated VCF
-        args_5 = shlex.shlex('java -Xmx4g -jar {0} '
-                             'extractFields '
-                             '- '
-                             '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
-                             'Gene.refGene GeneReq Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
-                             '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
-                             'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                             'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
-                             'CLNDSDB CLNDSDBID '
-                             'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
-                             .format(config.snpsift))
-        if args.testmode:
-            total_samples = 3
-            db_name_samples = db_name_samples + str(total_samples)
-        # Splits the last column (allele 1 depth, allele 2 depth into 3 columns:
-        # (reference reads, variant reads, percentage),
-        args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
-        # Adds the custom local DB frequencies to the n'th column (default is the 23. column)
-        args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
-                                                             os.path.join(config.db_directory,
-                                                                          db_name_samples),
-                                                             total_samples))
-        # This approach retains quotation marks and complete whitespace delimited args
-        slx = list([args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
-        for arg in slx:
-            arg.whitespace_split = True
-
-        # try:
-        with open(sample.name + ".hg19_multianno.vcf") as annotated:
-            proc_0 = subprocess.Popen([a for a in args_0], shell=False, stdin=annotated, stdout=subprocess.PIPE)
-
-            proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            # converter.convert(vcf=annotated)
-            proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-
-            proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
-                                               shell=False, stdin=proc_4.stdout,
-                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            proc_6 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # Proc 6 takes in a table
-            proc_7 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-            proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
-
-            with open(sample.name + ".annotated.table", "w+") as table:
-                # converter.convert(vcf=proc_8.communicate()[0], output=table) # converts the VCF
-                table.write(proc_8.communicate()[0])
-
-                sample.table_files.append(os.path.abspath(table.name))
-                if proc_8.returncode == 0:
-                    sample.annotated = True
-                    print("Finished annotating sample {0}".format(sample.name))
-                    print(sample)
-            for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
-                processes.append(proc)
-                # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
-            exit_codes = [p.wait() for p in proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8]
-            return exit_codes
+            # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
+        exit_codes = [p.wait() for p in proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8]
+        return exit_codes
 
 
 def calc_coverage(sample):
@@ -303,8 +302,8 @@ def calc_coverage(sample):
     sample.temptargetfile = temptarget.name
 
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".reference.", suffix=".refseq") as temprefseq:
-        pipeline_utility.file_utility.write_refseq(handler.hgncHandler, sample.order_list, config.reference_dict,
-                                                   config.refseq, out=temprefseq.file)
+        pipeline_utility.file_utility.write_refseq(handler.hgncHandler, sample.order_list, config.refseq,
+                                                   config.reference_dict, out=temprefseq.file)
 
     sample.temprefseq = temprefseq.name
 
@@ -373,7 +372,7 @@ def create_excel_table(sample):
     filters = TruesightOneFilters(total_samples, sample.table_files)
     postprocess = TruesightOnePostprocess(sample.table_files)
     formats = TruesightOneFormats(sample.table_files)
-
+    print("Entering create_excel")
     if args.annotate and sample.annotated:
         create_excel(".".join([sample.name, "xlsx"]), sample.table_files, filters, postprocess, formats)
         sample.finished = True
@@ -427,6 +426,10 @@ def getGeneOrder(samples, args):
                 sys.stderr.write("WARNING: sample ({0}) represented in the batch "
                                  "has no selected panels or genes in the --panels file. "
                                  "This sample will be annotated with 'ALL'.\n".format(sample.name))
+                results = TrusightOne.gene_panel.match_order_to_panels('ALL', combinedpanels, handler)
+                if len(results) > 0:
+                    for panel in results:
+                        sample.panels.append((panel, 'ALL'))
         print("-" * 90)
     except IOError as e:
         sys.stderr.write("PIPELINE ERROR: {0}\nDoes your batch contain the panels.txt file?\n"
@@ -454,7 +457,7 @@ def single_sample(converter, sample):
             sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
-            sample.trash.append(sample.genes_tempfile.name)
+            sample.trash.append(sample.genes_tempfile)
         if args.coverage:
             return_coverage = calc_coverage(sample)
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
@@ -481,7 +484,7 @@ def single_sample(converter, sample):
                     sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
 
         if sample.finished:
-            print("Finished sample {0}".format(sample.name))
+            print("Finished sample {0}".format(sample))
             # finished_samples.append(sample)
         else:
             print("Could not finish sample {0}".format(sample))
@@ -498,6 +501,7 @@ def single_sample(converter, sample):
 
 
 def run_samples(sample_list, args, pool):
+    timeStart = datetime.datetime.now()
     if not handler.loaded:
         handler.get_all_panels(False)  # Get local data
 
@@ -524,26 +528,33 @@ def run_samples(sample_list, args, pool):
     if not args.old:
         # update_database(samples, args.no_replace, args.testmode)
         dns, ts = local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
-                                      db_name_samples, total_samples)
+                                                db_name_samples, total_samples)
 
         for sample in samples:
-            sample.dns = dns
-            sample.ts = ts
+            if args.testmode:
+                ts = len(samples)
+                sample.ts = config.db_base_n + ts  #
+                sample.dns = str(dns) + str(sample.ts)
+            else:
+                sample.ts = ts
+                sample.dns = dns
 
     # mp = parmap.map(single_sample, samples, converter, pm_pbar=True, pm_processes=int(args.ncpus))  #
     # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
     func = partial(single_sample, converter)
-    #    mp = pool.map(func, samples)
+    mp = pool.map(func, samples)
 
-    #    pool.close()
-    #    pool.join()
-    mp = [func(s) for s in samples]
+    pool.close()
+    pool.join()
+    # mp = [func(s) for s in samples]
 
     finished_samples = [s for s in mp if s.finished == True]
     unfinished_samples = [s for s in mp if s.finished == False]
-
+    timeEnd = datetime.datetime.now()
     print("-" * 40)
-    print("Annotated {0} samples of {1} ordered/found.".format(len(finished_samples), len(samples)))
+    print("Finish time: {0}".format(timeEnd))
+    print("Finished {0}/{1} of ordered/found samples in {2}:".format(len(finished_samples), len(samples),
+                                                                     str(timeEnd - timeStart)))
     print("-" * 40)
     if len(unfinished_samples) > 0:
         for sample in unfinished_samples:
