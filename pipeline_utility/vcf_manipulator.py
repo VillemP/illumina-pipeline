@@ -21,7 +21,7 @@ def create_gene_dict(lines):
                 sys.stderr.write("ANNOTATOR error: {0}\n"
                                  "Your annotation file format might be incorrect (spaces instead of tabs)\n", e.message)
             if len(value) > 1:
-                val = value[:-1]
+                val = value[:-1]  # Get the last column GENE\tANNOTATION
             else:
                 val = "no_annotation"
             v = val.replace(" ", "_").replace(";", "|").replace("=",
@@ -52,7 +52,11 @@ def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout, progress=T
         else:
             variant = row.split()
             # The eight column is the INFO tag, containing the annotations
-            info = variant[7].split(';')
+            try:
+                info = variant[7].split(';')
+            except IndexError as e:
+                sys.stderr.write("\t".join(variant) + "\n")
+                raise e
             refgene = filter(lambda x: 'Gene.refGene=' in x, info)
             genelist = refgene[0].split('=')
             gene = genelist[1]

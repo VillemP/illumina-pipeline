@@ -5,27 +5,36 @@ import sys
 
 def annotate_pos(anno_file, ac, het, hom, chrpos=0, g_pos=1, ref_pos=3, alt_pos=4,
                  pos=21, empty=".", table=sys.stdin, output=sys.stdout):
-    ann_set = []
+    # sys.stderr.write("I'm here!\n")
+    ann_list = []
+    ann_dict = {}
     with open(anno_file, "r") as annotationfile:
         sys.stderr.write(anno_file + "\n")
         for line in annotationfile:
-            ann_set.append(line.split())
+            split = line.split()
+            key = "-".join(split[0:4])
+            ann_dict[key] = split
+            # ann_list.append(split)
+    annotation_hash = set([v[0] for v in ann_dict.keys()])  # Create a hashmap of the list
 
     for index, line in enumerate(table):
         row = line.split()
         if index == 0:
+            sys.stderr.write("Entering once.")
             row.insert((int(pos)), ac)
             row.insert((int(pos) + 1), het)
             row.insert((int(pos) + 2), hom)
             output.write("\t".join(row) + "\n")
         else:
-            var = [variant for variant in ann_set if variant[0:4] == [row[chrpos], row[g_pos], row[ref_pos],
-                                                                      row[alt_pos]]]
-            sys.stderr.write(str(var) + "\n")
-            if len(var) > 0:
-                ac_val = var[0][4]
-                het_val = var[0][5]
-                hom_val = var[0][6]
+
+            current_variant = "-".join([row[chrpos], row[g_pos], row[ref_pos], row[alt_pos]])
+            # var = next((v for v in ann_set if v[0:4] == current_variant), None)
+            if current_variant in annotation_hash:
+
+                var = ann_dict[current_variant]
+                ac_val = var[4]
+                het_val = var[5]
+                hom_val = var[6]
                 row.insert((int(pos)), str(ac_val))
                 row.insert((int(pos) + 1), str(het_val))
                 row.insert((int(pos) + 2), str(hom_val))
@@ -33,6 +42,7 @@ def annotate_pos(anno_file, ac, het, hom, chrpos=0, g_pos=1, ref_pos=3, alt_pos=
                 row.insert((int(pos)), empty)
                 row.insert((int(pos) + 1), empty)
                 row.insert((int(pos) + 2), empty)
+
             output.write("\t".join(row) + "\n")
 
 

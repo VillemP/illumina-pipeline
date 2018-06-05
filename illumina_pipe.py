@@ -8,9 +8,10 @@ import sys
 import time
 import traceback
 from functools import partial
+from multiprocessing import Pool
 from tempfile import NamedTemporaryFile
 
-import pathos
+import psutil
 
 import TrusightOne.gene
 import TrusightOne.gene_panel
@@ -49,6 +50,13 @@ project = os.path.basename(os.path.normpath(workingDir))
 assert os.path.exists(config.annotator)
 
 
+class AnnotationException(Exception):
+    def __init__(self, message, sample):
+        # Call the base class constructor with the parameters it needs
+        super(AnnotationException, self).__init__(message)
+        self.sample = sample
+
+
 def async_log(stdout, queue, pid=None):
     if stdout is not None and not stdout.closed:
         for line in iter(stdout.readline, b''):  # b'\n'-separated lines
@@ -83,7 +91,7 @@ def update_sample_stats(dns, ts):
     global db_name_samples
     global total_samples
 
-    db_name_samples = db_name_samples + str(dns)  # Used in the db combine_variants
+    db_name_samples = str(dns)  # Used in the db combine_variants
     total_samples = ts
     return dns, ts
 
@@ -161,16 +169,18 @@ def genderCheck(args, samples):
         proc.wait()
 
 
-def annotate(sample, args, converter):
+def annotate(sample, args):
     """
 
-    :param converter:
+    :param converter: The HgncConverter is used to convert gene symbols to HGNC symbols.
+    This object could be pickled and sent to threads when this function is called,
+    currently subprocess is used for converthgnc (with the subprocess creating its own HgncConverter.
     :type sample: pipeline_utility.sample as sample
     """
     print("Starting annotation for file: {0}".format(sample.name))
     total_samples = sample.ts
 
-    print(converter)
+    # print(converter)
     # A hack to have VcfManipulator insert an annotation, but it takes in a file object if accessed from subprocess
     sample.genes_tempfile = NamedTemporaryFile(delete=False, prefix=sample.name + ".genes.").name
     with open(sample.genes_tempfile, "w") as tempfile:
@@ -212,8 +222,9 @@ def annotate(sample, args, converter):
 
     # Add extra annotations to the VCF
     args_0 = shlex.shlex(
-        "{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--hgnc "
-                                     + config.hgncPath, "--input -", "--output -", "--progress"))
+        "{0} {1} {2} {3} {4}".format("python " + os.path.abspath(converthgnc.__file__), "--tso " + config.tsoGenes,
+                                     "--hgnc "
+                                     + config.hgncPath, "--input -", "--output -"))
     args_1 = shlex.shlex(
         "{0} {1} {2}".format("python " + os.path.abspath(vcf_manipulator.__file__), disease_name, "Disease.name"))
     args_2 = shlex.shlex(
@@ -236,8 +247,7 @@ def annotate(sample, args, converter):
                          'CLNDSDB CLNDSDBID '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
-    # if args.testmode:
-    #    db_name_samples = sample.dns + total_samples
+
     # Splits the last column (allele 1 depth, allele 2 depth into 3 columns:
     # (reference reads, variant reads, percentage),
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
@@ -254,47 +264,54 @@ def annotate(sample, args, converter):
     # try:
     with open(sample.name + ".hg19_multianno.vcf") as annotated:
         proc_0 = subprocess.Popen([a for a in args_0], shell=False, stdin=annotated, stdout=subprocess.PIPE)
-
-        proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
+        proc_1 = subprocess.Popen([a for a in args_1], shell=False, stdin=proc_0.stdout, stdout=subprocess.PIPE)
+        # converter.convert(vcf=annotated, output=proc_1.stdin)
         # converter.convert(vcf=annotated)
-        proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
+        proc_2 = subprocess.Popen([a for a in args_2], shell=False, stdin=proc_1.stdout, stdout=subprocess.PIPE)
+        proc_3 = subprocess.Popen([a for a in args_3], shell=False, stdin=proc_2.stdout, stdout=subprocess.PIPE)
+        proc_4 = subprocess.Popen([a for a in args_4], shell=False, stdin=proc_3.stdout, stdout=subprocess.PIPE)
 
         proc_gene_panel = subprocess.Popen([a for a in args_gene_panel],
                                            shell=False, stdin=proc_4.stdout,
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        proc_6 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Proc 6 takes in a table
-        proc_7 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
+                                           stdout=subprocess.PIPE)
+        proc_5 = subprocess.Popen([a for a in args_5], shell=False, stdin=proc_gene_panel.stdout,
+                                  stdout=subprocess.PIPE)
+        proc_6 = subprocess.Popen([a for a in args_6], shell=False, stdin=proc_5.stdout,
+                                  stdout=subprocess.PIPE)
+        proc_7 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_6.stdout, stdout=subprocess.PIPE)
+        # proc_8 = subprocess.Popen([a for a in args_7], shell=False, stdin=proc_7.stdout, stdout=subprocess.PIPE)
+        # for proc in (proc_0, proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
+        # for proc in (proc_0,):
+        #    processes.append(psutil.Process(proc.pid))
+        # proc.wait()
+        kill_proc = partial(timeoutcleanup)
 
         with open(sample.name + ".annotated.table", "w+") as table:
             # converter.convert(vcf=proc_8.communicate()[0], output=table) # converts the VCF
-            table.write(proc_8.communicate()[0])
-
-            sample.table_files.append(os.path.abspath(table.name))
-            if proc_8.returncode == 0:
+            # timeout is 10 minutes, after which the subprocesses will be forced closed
+            # gone, alive = psutil.wait_procs(processes, timeout=50, callback=kill_proc) #Keep track of all the subprocesses
+            # for p in alive:
+            #    p.kill()
+            # timeoutcleanup(sample, alive) # Kill those that are still alive after 600s
+            table.write(proc_7.communicate()[0])
+            # proc_8.wait()
+            sample.table_files.append(os.path.abspath(table.name))  #
+            if proc_7.returncode == 0:
                 sample.annotated = True
                 print("Finished annotating sample {0}".format(sample.name))
                 print(sample)
-        for proc in (proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8):
-            processes.append(proc)
-            # jobs.apply(logdata, proc.stderr,{'pid':proc.pid})
-        exit_codes = [p.wait() for p in proc_1, proc_2, proc_3, proc_4, proc_gene_panel, proc_6, proc_7, proc_8]
-        return exit_codes
+            else:
+                print("Error code: {0}".format(proc_7.returncode))
+
+        # return [p.children.returncode for p in processes]
+        return None
 
 
 def calc_coverage(sample):
     # grep $'\t'${gene}$'\.' < ${targets} >> ${covdir}${prefix}.genes.bed
     # sort -k1,1V -k2,2n -k3,3n < ${covdir}${prefix}.genes.bed > ${covdir}${prefix}.genes.sorted.bed
     # TODO: replace with BEDtools?
+    print("Starting coverage analysis for sample {0}".format(sample.name))
     with NamedTemporaryFile(delete=False, prefix=sample.name + ".target.", suffix=".bed") as temptarget:
         pipeline_utility.file_utility.write_targetfile(handler.hgncHandler, sample.order_list,
                                                        targetfile=config.targetfile,
@@ -446,19 +463,25 @@ def getGeneOrder(samples, args):
             sys.exit(1)
 
 
-def single_sample(converter, sample):
+def single_sample(args, sample):
     # global args
-    try:
-        print("Entering single sample: {0}".format(sample))
-        if args.annotate:
-            return_annotate = annotate(sample, args, converter)
+    print("Entering single sample: {0}".format(sample))
+    if args.annotate:
+        try:
+            return_annotate = annotate(sample, args)
             sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.vcf"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".hg19_multianno.txt"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".annotated.table"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".avinput"))
             sample.trash.append(os.path.join(workingDir, sample.name + ".converted.vcf"))
             sample.trash.append(sample.genes_tempfile)
-        if args.coverage:
+        except Exception as error:
+            sample.exceptions.append(error)
+            sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
+            traceback.print_exc(file=sys.stderr)
+            raise error
+    if args.coverage:
+        try:
             return_coverage = calc_coverage(sample)
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
@@ -471,33 +494,29 @@ def single_sample(converter, sample):
                                              sample.name + ".sample_statistics"))
             sample.trash.append(sample.temprefseq)
             sample.trash.append(sample.temptargetfile)
-        create_excel_table(sample)
+        except Exception as error:
+            sample.exceptions.append(error)
+            sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
+            traceback.print_exc(file=sys.stderr)
+    create_excel_table(sample)
 
-        # Delete the intermediary files, unnecessary files and files that have already been inserted
-        # into the output file.
-        if not args.keep:
-            for trashfile in sample.trash:
-                try:
-                    os.remove(trashfile)
-                # The file might've been already deleted or did not exist in the first place.
-                except(OSError) as oserror:
-                    sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
+    # Delete the intermediary files, unnecessary files and files that have already been inserted
+    # into the output file.
+    if not args.keep and len(sample.exceptions) == 0:
+        for trashfile in sample.trash:
+            try:
+                os.remove(trashfile)
+            # The file might've been already deleted or did not exist in the first place.
+            except(OSError) as oserror:
+                sys.stderr.write("Couldn't remove file: {0}\n{1}\n".format(trashfile, oserror.message))
 
-        if sample.finished:
-            print("Finished sample {0}".format(sample))
-            # finished_samples.append(sample)
-        else:
-            print("Could not finish sample {0}".format(sample))
-            # unfinished_samples.append(sample)
-        return sample
-    except Exception as error:
-        sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
-        traceback.print_exc(file=sys.stderr)
-        raise error
-
-    finally:
-        # return sample
-        pass
+    if sample.finished:
+        print("Finished sample {0}".format(sample))
+        # finished_samples.append(sample)
+    else:
+        print("Could not finish sample {0}".format(sample))
+        # unfinished_samples.append(sample)
+    return sample
 
 
 def run_samples(sample_list, args, pool):
@@ -523,7 +542,7 @@ def run_samples(sample_list, args, pool):
     if args.gendercheck:
         genderCheck(args, samples)
     getGeneOrder(samples, args)
-    converter = HgncConverterTool(config.hgncPath, hgncHandler=handler.hgncHandler)
+    converter = HgncConverterTool(config.hgncPath, tso=config.tsoGenes, hgncHandler=handler.hgncHandler)
     # DB is already updated
     if not args.old:
         # update_database(samples, args.no_replace, args.testmode)
@@ -533,7 +552,7 @@ def run_samples(sample_list, args, pool):
         for sample in samples:
             if args.testmode:
                 ts = len(samples)
-                sample.ts = config.db_base_n + ts  #
+                sample.ts = config.db_base_n  # + ts  #Just use the base DB because it probably exists
                 sample.dns = str(dns) + str(sample.ts)
             else:
                 sample.ts = ts
@@ -541,13 +560,13 @@ def run_samples(sample_list, args, pool):
 
     # mp = parmap.map(single_sample, samples, converter, pm_pbar=True, pm_processes=int(args.ncpus))  #
     # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
-    func = partial(single_sample, converter)
-    mp = pool.map(func, samples)
+    func = partial(single_sample, args)
+    # mp = pool.map(func, samples)
 
-    pool.close()
-    pool.join()
-    # mp = [func(s) for s in samples]
-
+    # pool.close()
+    # pool.join()
+    mp = [func(s) for s in samples]
+    #mp = pool.map(func, samples)
     finished_samples = [s for s in mp if s.finished == True]
     unfinished_samples = [s for s in mp if s.finished == False]
     timeEnd = datetime.datetime.now()
@@ -566,6 +585,7 @@ def run_samples(sample_list, args, pool):
 
 def query_symbol(symbol_list):
     for inp in symbol_list:
+        inp = inp.upper()
         synonyms = handler.hgncHandler.find_synonyms(inp)
         print("'{0}' is HGNC declared symbol: {1}".format(inp, handler.hgncHandler.is_hgnc(inp)))
         if len(synonyms) > 0:
@@ -713,6 +733,27 @@ def cleanup(processpool):
     print("Exiting...")
 
 
+def killsubprocesses(procs):
+    killed = 0
+    for p in procs:
+        try:
+            p.kill()
+            killed += 1
+        except OSError or psutil.NoSuchProcess:
+            pass
+            # already dead
+    sys.stderr.write("Killed processes {0}\n".format(str([p.pid for p in procs])))
+    sys.stderr.flush()
+    return killed
+
+
+def timeoutcleanup(proc):
+    print("Timeout cleanup for process: {0}!".format(proc))
+    # killed = killsubprocesses(processes)
+    # if killed > 0:
+    #    raise AnnotationException("The subprocesses timed out in sample {0} \n".format(sample), sample)
+
+
 if __name__ == "__main__":
     global args  # A global variable that is not edited after this function (for multithreaded functions)
     parser = argparse.ArgumentParser(prog="TruesightOne pipeline command-line tool")
@@ -780,16 +821,8 @@ if __name__ == "__main__":
         parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
 
     # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
-    pool = pathos.multiprocessing.ProcessPool(ncpus=args.ncpus)
+    # pool = pathos.multiprocessing.ProcessPool(ncpus=args.ncpus)
+    pool = Pool(processes=args.ncpus)
     main(args, pool)
 
     atexit.register(cleanup, pool)
-#    for p in processes:
-#        try:
-#            if p is not None:
-#                sys.stderr.write("Killing subprocesses {0}\n".format(p.pid))
-#                p.terminate()
-#        except OSError:
-#            pass  # process is already dead
-#        finally:
-#            sys.stderr.flush()

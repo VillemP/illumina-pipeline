@@ -285,9 +285,10 @@ def match_order_to_panels(key, combinedpanels, handler):
         match = [panel for panel in handler.panels if panel.name == key]
         if len(match) == 0:
             # Maybe it is an ID based query
-            match = [panel for panel in handler.panels if panel.id == key]
+            match = [panel for panel in handler.panels if
+                     panel.id.upper() == key]  # The keys are stored in a lower case, but our search tool converts all input to upper
             if len(match) > 0:
-                return match[0]
+                return match
             else:
                 sys.stderr.write("PIPELINE ERROR: Unknown panel key {0}\n".format(key))
                 return []

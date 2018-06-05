@@ -3,6 +3,7 @@ import atexit
 import datetime
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import thread
@@ -125,7 +126,21 @@ def annotate(sample, args, config):
     global db_name_samples
 
     # Reduce the amount of variants to work with
-    if not args.testmode:
+    if args.testmode:
+        args_gz = shlex.shlex("bgzip {0} -f".format(sample.vcflocation.strip(".gz")))
+        args_idx = shlex.shlex("tabix {0}".format(sample.vcflocation))
+
+        args_gz.whitespace_split = True
+        args_idx.whitespace_split = True
+        if args.recall:
+            if not os.path.exists(sample.vcflocation + ".bak"):
+                shutil.copy(sample.vcflocation, sample.vcflocation + ".bak")
+            gz_proc = subprocess.Popen([a for a in args_gz], shell=False)
+            gz_proc.wait()
+            idx_proc = subprocess.Popen([a for a in args_idx], shell=False)
+            idx_proc.wait()
+
+        input_vcf = sample.vcflocation
 
         annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                                     "-out {3} "
@@ -135,7 +150,7 @@ def annotate(sample, args, config):
                                     "-operation g,r,f,f,f,f,f,f,f "
                                     "-nastring . "
                                     "-otherinfo "
-                                    "-vcfinput".format(config.annotator, sample.vcflocation, config.annotation_db,
+                                    "-vcfinput".format(config.annotator, input_vcf, config.annotation_db,
                                                        sample.name))
         if not sample.error:
             proc = subprocess.Popen(annotate_args, shell=False, stderr=subprocess.PIPE)
@@ -293,7 +308,12 @@ def create_excel_table(sample):
     post = MyeloidPostprocess(sample.table_files)
     formats = MyeloidFormats(sample.table_files)
     if args.annotate and sample.annotated:
-        create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post, formats)
+        if args.recall:
+            create_excel(".".join([sample.name, "BQ10", str(config.padding), "xlsx"]), sample.table_files, filters,
+                         post, formats)
+        else:
+            create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post,
+                         formats)
 
     elif args.testmode:
         sample.table_files.append(sample.name + ".annotated.table")
@@ -470,6 +490,8 @@ if __name__ == "__main__":
                             action="store_true", default=False)
         parser.add_argument("--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
                             action="store", type=int)
+        parser.add_argument("--recall", action="store_true", help="Takes in the .vcf file, " \
+                                                                  "bgzips and uses tabix to index it.", default=False)
 
         args = parser.parse_args()
         main(args)

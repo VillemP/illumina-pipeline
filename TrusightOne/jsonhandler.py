@@ -22,7 +22,7 @@ class JsonHandler(JsonHandlerBase):
         self.panel_index = self.load_index(db_dir)
         self.json_dir = db_dir
         self.pbar = None
-        self.hgncHandler = gene.HgncHandler(config.hgncPath, config.tsoGenes)
+        self.hgncHandler = gene.HgncHandler(config.hgncPath, config.tsoGenes, verbosity=gene.EXCEPTIONS)
 
     @property
     def loaded(self):

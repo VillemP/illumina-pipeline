@@ -2,9 +2,19 @@ import sys
 GREEN = "HighEvidence"
 AMBER = "ModerateEvidence"
 RED = "LowEvidence"
-
+WARNINGS = 2  # Report all
+EXCEPTIONS = 1  # Report potentially impactful events
 
 class HgncHandler:
+
+    def __init__(self, hgncPath, tsoPath, verbosity=WARNINGS):
+        self.verbosity = verbosity
+        self.tso_genes = list()
+        self.hgnc_genes = {}
+        self.synonym_hgnc = {}
+        self.load_hgnc_genes(hgncPath)
+        if tsoPath is not None:  # the HgncConverterTool only requires HGNC genes, thus tsoGenes are not loaded
+            self.load_tso_genes(tsoPath)
 
     def load_hgnc_genes(self, hgncPath):
         """
@@ -78,14 +88,6 @@ class HgncHandler:
                              "The file should contain the gene name and coverage, tab seperated (GENE_NAME\\tCOVERAGE\\n)"
                              .format(error.message))
 
-    def __init__(self, hgncPath, tsoPath):
-        self.tso_genes = list()
-        self.hgnc_genes = {}
-        self.synonym_hgnc = {}
-        self.load_hgnc_genes(hgncPath)
-        if tsoPath is not None:  # the HgncConverterTool only requires HGNC genes, thus tsoGenes are not loaded
-            self.load_tso_genes(tsoPath)
-
     def get_tso_status(self, gene):
         # type: (gene) -> bool
         if len(self.tso_genes) == 0:
@@ -99,7 +101,7 @@ class HgncHandler:
             return True
         return False
 
-    def find_gene(self, name, verbose=True):
+    def find_gene(self, name, verbose=False):
         """
         Find the Gene object from the genes created from config.tsoGenes.
         Compares the gene name (which is converted to HGNC if possible) to the input,
@@ -123,17 +125,17 @@ class HgncHandler:
                 if len(genes) == 1:
                     return genes[0]
                 else:
-                    if verbose:
+                    if self.verbosity > EXCEPTIONS or verbose:
                         sys.stderr.write("PIPELINE ERROR: The gene {0} had several matches among the covered genes!\n"
                                          .format(name))
                     # TODO: What happens if there are several matches?
             else:
-                if verbose:
+                if self.verbosity >= WARNINGS or verbose:
                     sys.stderr.write(
                         "PIPELINE ERROR: The gene {0} was not found among the covered genes.\n".format(name))
                 return None
         else:
-            if verbose:
+            if self.verbosity >= WARNINGS or verbose:
                 sys.stderr.write("The gene {0} was not found among HGNC names and synonyms.\n".format(name))
 
     def synonyms_to_hgnc(self, symbol):

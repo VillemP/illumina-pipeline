@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 import argparse
+import errno
 import os
 import sys
 
@@ -8,11 +9,11 @@ import TrusightOne.gene as gene
 
 
 class HgncConverterTool:
-    def __init__(self, hgnc_path, hgnc_genes=None, hgncHandler=None):
+    def __init__(self, hgnc_path, tso, hgnc_genes=None, hgncHandler=None):
         if hgncHandler is not None:
             self.hgncHandler = hgncHandler
         else:
-            self.hgncHandler = gene.HgncHandler(hgnc_path, None)
+            self.hgncHandler = gene.HgncHandler(hgnc_path, tsoPath=tso, verbosity=gene.EXCEPTIONS)
         # Load our HGNC terms if not already loaded in the module
         if hgnc_genes is not None:
             self.hgnc_genes = hgnc_genes
@@ -35,7 +36,7 @@ class HgncConverterTool:
         variants = 0
         edited = {}
         edited_variants = 0
-
+        last_changed = 0
         for i, row in enumerate(vcf):
             if row[0] == "#":
                 headers += 1
@@ -50,21 +51,34 @@ class HgncConverterTool:
                     raise e
                 refgene = filter(lambda x: 'Gene.refGene=' in x, info)
                 genelist = refgene[0].split('=')
-                symbol = genelist[1]
-
-                hgnc = self.hgncHandler.find_gene(symbol)
+                # Some genes are paired with their synonyms: TSIX\x3bXIST
+                # genelist[1] is the raw representation
+                symbol = genelist[1].split("\\x3b")
+                # symbol = [genelist[1], None]
+                hgnc = self.hgncHandler.find_gene(symbol[0], verbose=False)
                 if hgnc is not None:
-                    if hgnc.name != symbol:
-                        for field in info:
-                            if symbol in field:
-                                edited[symbol] = hgnc.name  # Log
-                                edited_variants += 1
-                                field.replace(symbol, hgnc)
-                    else:
-                        pass  # Don't replace anything
+                    if hgnc.name != genelist[1]:
+                        for field_idx, field in enumerate(info):
+                            new_field = field
+                            if symbol[0] in field:
+                                edited[genelist[1]] = hgnc.name  # Log
+                                if i != last_changed:
+                                    edited_variants += 1
+                                last_changed = i
+                                new_field = field.replace(genelist[1], hgnc.name)
+                            info[field_idx] = new_field
+
                 variant[7] = ';'.join(info)
-                # print("\t".join(variant) + "\n")
-                output.write("\t".join(variant) + "\n")
+                try:
+                    output.write("\t".join(variant) + "\n")
+                except IOError as e:
+                    if e.errno == errno.EPIPE or e.errno == errno.EINVAL:
+                        # Stop loop on "Invalid pipe" or "Invalid argument".
+                        # No sense in continuing with broken pipe.
+                        break
+                    else:
+                        # Raise any other error.
+                        raise
                 variants += 1
             if progress:
                 if i % 400 == 0:
@@ -72,8 +86,7 @@ class HgncConverterTool:
                         sys.stderr.write("HGNC converter done with {0} lines...\n".format(i))
         sys.stderr.write("Finished the HGNC conversion with {0} genes replaced with a HGNC term in {1} variants."
                          "\nOriginal:HGNC {2}".format(len(edited), edited_variants, edited))
-
-        sys.stderr.flush()
+        #sys.stderr.flush()
 
     def convert_gene(self, symbol):
         if not self.hgncHandler.is_hgnc(symbol):
@@ -91,6 +104,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="Annotation pipeline VCF-variant gene symbol to HGNC converter. "
                                           "Requires a local representation of HGNC.")
     parser.add_argument("-l", "--hgnc", help="The path to the HGNC local representation.", action="store", type=str)
+    parser.add_argument("-t", "--tso", help="The path to the TSO covered genes local representation.", action="store",
+                        type=str)
     parser.add_argument("-i", "--input", help="The input file, default stdin", action="store", type=str,
                         default="-")
     parser.add_argument("-o", "--output", help="The output file, default stdout", action="store", type=str,
@@ -106,7 +121,7 @@ if __name__ == "__main__":
     if args.output == "-":
         out = sys.stdout
     sys.stderr.write(str(args) + "\n")
-    handler = HgncConverterTool(args.hgnc)
+    handler = HgncConverterTool(args.hgnc, tso=args.tso)
 
     if args.input != "-" and args.output != "-":
         with open(args.input) as infile:
@@ -119,4 +134,4 @@ if __name__ == "__main__":
         with open(args.input) as infile:
             handler.convert(vcf=infile, progress=args.progress)
     else:
-        handler.convert(progress=args.progress)
+        handler.convert(vcf=sys.stdin, output=sys.stdout, progress=args.progress)

@@ -6,6 +6,7 @@ class Sample(object):
         super(Sample, self).__init__()
         if vcflocation is not None and bamlocation is not None:
             self.error = False
+            self.exceptions = []
             self.dns = None  # Samples in the database
             self.ts = None  # Total samples
             self.name = name.rstrip()

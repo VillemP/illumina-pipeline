@@ -46,7 +46,7 @@ def update_vcf_list(vcfs_list, config, copied, renamed, db_name_samples, total_s
         # db_vcfs.seek(0)
 
         i = 0
-
+        preexisting = 0
         for current_pos, vcf in enumerate(copied + renamed):
 
             name = os.path.basename(vcf).rsplit('.')[0]
@@ -54,7 +54,9 @@ def update_vcf_list(vcfs_list, config, copied, renamed, db_name_samples, total_s
             i += 1
             if not line in data:
                 db_vcfs.write(line + "\n")
-    total_samples = total_samples + curr_len + i
+            else:
+                preexisting += 1
+    total_samples = total_samples + curr_len + i - preexisting
     db_name_samples = db_name_samples + str(total_samples)
     create_arguments_file(str(total_samples))
     print ("Updated {0} with {1} unique samples. "
