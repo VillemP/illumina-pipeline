@@ -179,10 +179,11 @@ def annotate(sample, args, config):
     if args.testmode:
         total_samples = 1
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
-    args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
-                                                         os.path.join(config.db_directory,
+    args_7 = shlex.shlex(
+        'python {0} --annotation {1}.txt --totalsamples {2}'.format(os.path.abspath(annotate_by_pos.__file__),
+                                                                    os.path.join(config.db_directory,
                                                                       db_name_samples),
-                                                         total_samples))
+                                                                    total_samples))
     # This approach retains quotation marks and complete whitespace delimited args
     slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
     for arg in slx:

@@ -273,7 +273,8 @@ class CombinedPanels(dict):
 
 def match_order_to_panels(key, combinedpanels, handler):
     try:
-        if key != "":
+        # TODO: currently combinedpanels['-'] will return Ehlers-Danlos, fix this!
+        if key != "" and key != '-':
             panel = combinedpanels[key]
             return panel
         else:

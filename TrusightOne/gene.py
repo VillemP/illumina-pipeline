@@ -110,7 +110,11 @@ class HgncHandler:
         :param name: Gene symbol
         :return: gene.Gene | None
         """
-        hgnc = self.hgnc_genes.get(name, None)
+        # hgnc = self.hgnc_genes.get(name, None)
+        try:
+            hgnc = self.hgnc_genes[name]
+        except KeyError:
+            hgnc = None
         # HGNC is None -> might be a synonym
         if hgnc is None:
             hgnc = self.synonyms_to_hgnc(name)

@@ -252,7 +252,8 @@ def annotate(sample, args):
     # (reference reads, variant reads, percentage),
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
     # Adds the custom local DB frequencies to the n'th column (default is the 23. column)
-    args_7 = shlex.shlex('python {0} {1}.txt {2}'.format(os.path.abspath(annotate_by_pos.__file__),
+    args_7 = shlex.shlex('python {0} db_freq --annotation {1}.txt --input - '
+                         '--out - --totalsamples {2}'.format(os.path.abspath(annotate_by_pos.__file__),
                                                          os.path.join(config.db_directory,
                                                                       str(sample.dns)),
                                                          total_samples))
@@ -565,8 +566,8 @@ def run_samples(sample_list, args, pool):
 
     # pool.close()
     # pool.join()
-    mp = [func(s) for s in samples]
-    #mp = pool.map(func, samples)
+    # mp = [func(s) for s in samples]
+    mp = pool.map(func, samples)
     finished_samples = [s for s in mp if s.finished == True]
     unfinished_samples = [s for s in mp if s.finished == False]
     timeEnd = datetime.datetime.now()

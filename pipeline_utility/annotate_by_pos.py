@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
+import argparse
 import sys
 
 
@@ -9,18 +10,16 @@ def annotate_pos(anno_file, ac, het, hom, chrpos=0, g_pos=1, ref_pos=3, alt_pos=
     ann_list = []
     ann_dict = {}
     with open(anno_file, "r") as annotationfile:
-        sys.stderr.write(anno_file + "\n")
         for line in annotationfile:
             split = line.split()
             key = "-".join(split[0:4])
             ann_dict[key] = split
             # ann_list.append(split)
-    annotation_hash = set([v[0] for v in ann_dict.keys()])  # Create a hashmap of the list
+    annotation_hash = set([v for v in ann_dict.keys()])  # Create a hashmap of the list
 
     for index, line in enumerate(table):
         row = line.split()
         if index == 0:
-            sys.stderr.write("Entering once.")
             row.insert((int(pos)), ac)
             row.insert((int(pos) + 1), het)
             row.insert((int(pos) + 2), hom)
@@ -49,26 +48,51 @@ def annotate_pos(anno_file, ac, het, hom, chrpos=0, g_pos=1, ref_pos=3, alt_pos=
 if __name__ == '__main__':
     # positional arguments e.g. 0,1,2,3 correlates to CHR,POS,REF,ALT in the indexes 0,1,2,3
     # Insertion position is 21 by default.
-    args = sys.argv
-    if len(args) >= 6:
-        print ""
-        print "Input file: " + args[6]
-        print "Output is written to: " + args[7]
-        print ""
-        with open(args[3], "w+") as output:
-            annotate_pos(args[1], args[2], args[3], args[4], args[5], output=output)
+    parser = argparse.ArgumentParser(prog="Annotation pipeline command-line file tool for local DB annotation.")
+    subparsers = parser.add_subparsers(title="commands", dest="command")
 
-        print ""
-        print "Finished!"
-    else:
-        if len(args) == 5:
-            positions = args[3].split(",")
-            positions = map(int, positions)
-            if len(positions) == 4:
-                # We need all the positions to map the variant (create a unique representation of it)
-                sys.stderr.write(str(positions) + "\n")
-                annotate_pos(args[1], args[2] + ".AC", args[2] + ".HET", args[2] + ".HOM", chrpos=positions[0],
-                             g_pos=positions[1], ref_pos=positions[2], alt_pos=positions[3],
-                             pos=args[4])
+    db_freq = subparsers.add_parser("db_freq", help="Write the frequency of variants in a local DB")
+    db_freq.add_argument("-a", "--annotation", action="store", type=str)
+    db_freq.add_argument("-i", "--input", help="The input file, default stdin", action="store", type=str,
+                         default="-")
+    db_freq.add_argument("-o", "--output", help="The output file, default stdout", action="store", type=str,
+                         default="-")
+    db_freq.add_argument("--totalsamples", type=int, action="store")
+    db_freq.add_argument("--positions",
+                         help="The representation of CHROM,POS,REF,ALT index positions in the DB file (default is '0,1,3,4')",
+                         action="store", type=str, default="0,1,3,4")
+    db_freq.add_argument("--insertpos", help="The index of the column where the DB columns are inserted. Default is 21",
+                         type=int, action="store", default=21)
+
+    args = parser.parse_args()
+
+    positions = args.positions.split(",")
+    positions = map(int, positions)
+    assert len(positions) == 4, "The position string was not 4 elements long. (Check your seperator)" \
+                                "All positions need to be described in the positions string (e.g. 0,1,3,4)"
+
+    if args.command == "db_freq":
+        if args.input is not "-" and args.output is not "-":
+            with open(args.input) as infile:
+                with open(args.output, "w+") as outfile:
+                    annotate_pos(args.annotation, ac=str(args.totalsamples) + "AC", het=str(args.totalsamples) + "HET",
+                                 hom=str(args.totalsamples) + "HOM", chrpos=positions[0], g_pos=positions[1],
+                                 ref_pos=positions[2], alt_pos=positions[3], table=infile, output=outfile,
+                                 pos=args.insertpos)
+        elif args.input is not "-":
+            with open(args.input) as infile:
+                annotate_pos(args.annotation, ac=str(args.totalsamples) + "AC", het=str(args.totalsamples) + "HET",
+                             hom=str(args.totalsamples) + "HOM", chrpos=positions[0], g_pos=positions[1],
+                             ref_pos=positions[2], alt_pos=positions[3], table=infile)
+        elif args.output is not "-":
+            with open(args.output) as outfile:
+                annotate_pos(args.annotation, ac=str(args.totalsamples) + "AC", het=str(args.totalsamples) + "HET",
+                             hom=str(args.totalsamples) + "HOM", chrpos=positions[0], g_pos=positions[1],
+                             ref_pos=positions[2], alt_pos=positions[3], output=outfile)
         else:
-            annotate_pos(args[1], args[2] + ".AC", args[2] + ".HET", args[2] + ".HOM")
+            annotate_pos(args.annotation, ac=str(args.totalsamples) + "AC", het=str(args.totalsamples) + "HET",
+                         hom=str(args.totalsamples) + "HOM", chrpos=positions[0], g_pos=positions[1],
+                         ref_pos=positions[2], alt_pos=positions[3])
+
+    else:
+        sys.stderr.write("Unknown command {0}\n".format(args.command))

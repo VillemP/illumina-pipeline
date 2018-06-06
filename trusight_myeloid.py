@@ -126,7 +126,7 @@ def annotate(sample, args, config):
     global db_name_samples
 
     # Reduce the amount of variants to work with
-    if args.testmode:
+    if not args.testmode:
         args_gz = shlex.shlex("bgzip {0} -f".format(sample.vcflocation.strip(".gz")))
         args_idx = shlex.shlex("tabix {0}".format(sample.vcflocation))
 
@@ -188,11 +188,13 @@ def annotate(sample, args, config):
     args_6 = shlex.shlex('python {0}'.format(os.path.abspath(adsplit.__file__)))
 
     # This adds the local database frequencies.
-    args_7 = shlex.shlex('python {0} {1}.txt {2} {3} {4}'.format(os.path.abspath(annotate_by_pos.__file__),
-                                                                 os.path.join(config.db_directory,
+    args_7 = shlex.shlex(
+        'python {0} db_freq --annotation {1}.txt --totalsamples {2} --positions {3} --insertpos {4}'.format(
+            os.path.abspath(annotate_by_pos.__file__),
+            os.path.join(config.db_directory,
                                                                               db_name_samples),
-                                                                 total_samples, "0,1,4,5",
-                                                                 str(21)))  # "0,1,4,5" are column positions
+            total_samples, "0,1,4,5",
+            str(21)))  # "0,1,4,5" are column positions
     args_8 = shlex.shlex('bash {0} {1} {2} {3}'.format(config.itdseek, sample.bamlocation, config.reference,
                                                        config.samtools))
     args_9 = shlex.shlex('java -jar {0} '

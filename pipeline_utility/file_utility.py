@@ -247,8 +247,12 @@ def filter_targetfile(hgncHandler, geneslist, targets, genecolumn=3, sort0=0, so
     split_targets = []  # Final edited list
     for i, line in enumerate(targets):
         target_line = []
-        for element in line.split('\t'):
-            target_line.append(element.strip())
+        if not type(line) is list:
+            for element in line.split('\t'):
+                target_line.append(element.strip())
+        else:
+            for element in line:
+                target_line.append(element.strip())
         assert len(
             target_line) >= genecolumn, "You input bedfile is malformed! " \
                                         "The bedfile should contain a column with gene symbols " \
@@ -315,14 +319,16 @@ def readrefseq(refSeq):
     :return: list
     """
     allCols = []
-    for i, line in enumerate(refSeq):
-        if i != 0:  # skip the header
-            allCols.append(line.split("\t"))  # adds a column-split line to the list (the final column contains a LF)
+    with open(refSeq, "r") as reads:
+        for i, line in enumerate(reads):
+            if i != 0:  # skip the header
+                allCols.append(
+                    line.split("\t"))  # adds a column-split line to the list (the final column contains a LF)
 
     return allCols
 
 
-def sort_refseq(ref_dict, refseq):
+def sort_refseq(ref_dict, reflines):
     """
     Sort the refseq file according to chromosome, startpos, endpos based on the input reference sequence dictionary file
     Returns a 2-dimensional sorted table of lists.
@@ -331,18 +337,8 @@ def sort_refseq(ref_dict, refseq):
     :return: list
     """
     contigs = readdict(ref_dict)
-    global reflines
-    if reflines is None:
-        if type(refseq[0]) is str:
-            reflines = readrefseq(refseq)
-            # The input refseq is a list of unsplit strings
-        elif type(refseq[0] is list):
-            reflines = refseq  # the input param is already a list of lists (split by column)
-        else:
-            raise ValueError("Unknown refseq parameter while sorting.")
-
-    sorted_ref = sorted(reflines, key=lambda line: (contigs.index(line[2]), int(line[4]), int(line[5])))
-    return sorted_ref
+    reflines.sort(key=lambda line: (contigs.index(line[2]), int(line[4]), int(line[5])))
+    return reflines
 
 
 def write_targetfile(hgncHandler, geneslist, targetfile, out=sys.stdout):
@@ -353,16 +349,13 @@ def write_targetfile(hgncHandler, geneslist, targetfile, out=sys.stdout):
 
 
 def write_refseq(hgncHandler, geneslist, refseq, refdict=None, out=sys.stdout):
-    global reflines
-    if reflines is None:
-        with open(refseq) as ref:
-            # lines = ref.readlines()
-            reflines = ref.readlines()
+    # global reflines
+    reflines = readrefseq(refseq)
     gene_filtered_refseq = filter_targetfile(hgncHandler, geneslist, reflines, genecolumn=12, sort0=2, sort1=4, sort2=5)
     # Definitely make sure our sort catches all sorting orders of refseq.
     # This will sort the refseq according to the reference dictionary file.
-    # final_sort = sort_refseq(refdict, gene_filtered_refseq)
-    for line in gene_filtered_refseq:
+    final_sort = sort_refseq(refdict, gene_filtered_refseq)
+    for line in final_sort:
         out.write("\t".join(line) + "\n")
 
 
@@ -461,6 +454,20 @@ if __name__ == "__main__":
                                       " interval.", type=argparse.FileType('r'))
     intervalsummary.add_argument("--summary", help="The interval_summary file created by GATK that is to be annotated.")
     intervalsummary.add_argument("--out", help="The output file, default is stdout", default="stdout")
+    refseq = subparsers.add_parser("refseq")
+    refseq.add_argument("-g", "--genes", help="List of genes to be grepped and sorted into a new targetfile",
+                        action="store", type=str, nargs="+")
+    refseq.add_argument("-t", "--targetfile", help="The input targetfile.", type=str, action="store")
+    refseq.add_argument("--dict", help="The reference sequence dictionary file.", type=argparse.FileType('r'))
+    refseq.add_argument("-s", "--hgnc", help="The HGNC gene symbols reference file.", type=str, action="store")
+    refseq.add_argument("-r", "--tsogenes", help="The genes reference file for "
+                                                 "genes covered on the sequencing panel", type=str, action="store")
+    refseq.add_argument("-o", "--output", help="The output file to be created", action="store", type=str)
+    refseq.add_argument("--bed",
+                        help="The interval file (should also contain the symbols corresponding to each"
+                             " interval.", type=str, action="store")
+
+
     args = parser.parse_args()
 
     if args.command == "writevcfs":
@@ -470,10 +477,7 @@ if __name__ == "__main__":
             copy_vcf(f.readlines(), args.destination)
     if args.command == "refseq":
         handler = gene.HgncHandler(args.hgnc, args.tsogenes)
-        # gene.load_hgnc_genes(args.hgnc)
-        #gene.load_tso_genes(args.tsogenes)
-        # write_targetfile(args.genes, args.targetfile)
-        write_refseq(args.genes, args.dict.name, args.targetfile.name)
+        write_refseq(handler, args.genes, args.targetfile, refdict=args.dict.name)
     if args.command == "targetfile":
         handler = gene.HgncHandler(args.hgnc, args.tsogenes)
         write_targetfile(handler, args.genes, args.bed)
