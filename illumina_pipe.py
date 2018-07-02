@@ -13,6 +13,8 @@ from tempfile import NamedTemporaryFile
 
 import psutil
 
+# sys.path.append('/home/sander/PycharmProjects/illumina_pipe/') #Added as a dirty fix, correct this!
+# sys.path.append(os.path.dirname(__file__))
 import TrusightOne.gene
 import TrusightOne.gene_panel
 import TrusightOne.truesightoneconfig

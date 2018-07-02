@@ -198,19 +198,23 @@ class CombinedPanels(dict):
 
     def __getitem__(self, item):
         return super(CombinedPanels, self).__getitem__(
-            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
+            [key for key in self.iterkeys() if
+             [True for element in key if item == element or item == element.upper() or item == key]][0])
 
     def __delitem__(self, item):
         return super(CombinedPanels, self).__delitem__(
-            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
+            [key for key in self.iterkeys() if
+             [True for element in key if item == element or item == element.upper() or item == key]][0])
 
     def get(self, item, default=None):
         return super(CombinedPanels, self).get(
-            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0], default)
+            [key for key in self.iterkeys() if
+             [True for element in key if item == element or item == element.upper() or item == key]][0], default)
 
     def __contains__(self, item):
         return super(CombinedPanels, self).__contains__(
-            [key for key in self.iterkeys() if [True for element in key if item == element or item == key]][0])
+            [key for key in self.iterkeys() if
+             [True for element in key if item == element or item == element.upper() or item == key]][0])
 
     def table(self):
         lines = list()

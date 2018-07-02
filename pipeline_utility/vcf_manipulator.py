@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 import sys
+from collections import defaultdict
 
 
 def load_annotation_file(annotation_file):
@@ -11,26 +12,33 @@ def load_annotation_file(annotation_file):
 
 # Useful in a future setting skipping tempfiles and subprocessing
 def create_gene_dict(lines):
-    d = {}
+    d = defaultdict(set)
     for line in lines:
         # Skip comment lines
         if not line.startswith('#'):
             try:
                 (key, value) = line.split("\t")
+                if len(value) > 1:
+                    val = value[:-1]  # Get the last column GENE\tANNOTATION
+                else:
+                    val = "no_annotation"
+                v = val.replace(" ", "_").replace(";", "|").replace("=",
+                                                                    "_").strip()  # Escape newlines and replace illegal chars
+                if key in d:
+                    # Only add unique values
+                    if v not in d[key]:
+                        d[key].append(v)
+                    else:
+                        # Some debugging
+                        # sys.stderr.write(key + str(d[key]) + "\n")
+                        pass
+                else:
+                    d[key] = [v]
             except ValueError as e:
                 sys.stderr.write("ANNOTATOR error: {0}\n"
                                  "Your annotation file format might be incorrect (spaces instead of tabs)\n", e.message)
-            if len(value) > 1:
-                val = value[:-1]  # Get the last column GENE\tANNOTATION
-            else:
-                val = "no_annotation"
-            v = val.replace(" ", "_").replace(";", "|").replace("=",
-                                                                "_").strip()  # Escape newlines and replace illegal chars
-            if key in d:
-                d[key].append(v)
-            else:
-                d[key] = [v]
     return d
+
 
 
 def annotate(gene_dict, annotation, vcf=sys.stdin, output=sys.stdout, progress=True):
