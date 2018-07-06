@@ -311,7 +311,8 @@ def create_excel_table(sample):
     formats = MyeloidFormats(sample.table_files)
     if args.annotate and sample.annotated:
         if args.recall:
-            create_excel(".".join([sample.name, "BQ10", str(config.padding), "xlsx"]), sample.table_files, filters,
+            create_excel(".".join([sample.name, "BQ10", "MQ0", str(config.padding), "xlsx"]), sample.table_files,
+                         filters,
                          post, formats)
         else:
             create_excel(".".join([sample.name, str(config.padding), "xlsx"]), sample.table_files, filters, post,

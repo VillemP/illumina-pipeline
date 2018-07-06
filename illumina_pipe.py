@@ -114,12 +114,6 @@ def combine_variants(vcflist=config.db_vcf_dir):
                                                                   config.logfile,
                                                                   args.ncpus))
 
-    proc = subprocess.Popen(combine, shell=False, stderr=subprocess.PIPE)
-    processes.append(proc)
-
-    logdata(proc.stderr)
-    proc.wait()
-
     variantstotable = shlex.split('java -Xmx10g -jar {0} '
                                   '-T VariantsToTable '
                                   '-R {1} '
@@ -129,12 +123,21 @@ def combine_variants(vcflist=config.db_vcf_dir):
                                   '-o {4}{5}.txt '.format(config.toolkit, config.reference, config.db_directory,
                                                           db_name_samples,
                                                           config.db_directory,
-                                                          db_name_samples, config.logfile))
+                                                          db_name_samples))
+    if not args.exists:
+        proc_combine = subprocess.Popen(combine, shell=False, stderr=subprocess.PIPE)
+        processes.append(proc_combine)
 
-    proc = subprocess.Popen(variantstotable, shell=False, stderr=subprocess.PIPE)
-    processes.append(proc)
-    logdata(proc.stderr)
-    proc.wait()
+        logdata(proc_combine.stderr)
+        proc_combine.wait()
+
+        proc_totable = subprocess.Popen(variantstotable, shell=False, stderr=subprocess.PIPE)
+        processes.append(proc_totable)
+        logdata(proc_totable.stderr)
+        proc_totable.wait()
+    else:
+        print("Skipping DB creation. Using database with name: {0}".format(
+            "".join([config.db_directory, db_name_samples, ".txt"])))
     # print proc.returncode
     # proc.communicate()
 
@@ -256,9 +259,9 @@ def annotate(sample, args):
     # Adds the custom local DB frequencies to the n'th column (default is the 23. column)
     args_7 = shlex.shlex('python {0} db_freq --annotation {1}.txt --input - '
                          '--out - --totalsamples {2}'.format(os.path.abspath(annotate_by_pos.__file__),
-                                                         os.path.join(config.db_directory,
-                                                                      str(sample.dns)),
-                                                         total_samples))
+                                                             os.path.join(config.db_directory,
+                                                                          str(sample.dns)),
+                                                             total_samples))
     # This approach retains quotation marks and complete whitespace delimited args
     slx = list([args_0, args_1, args_2, args_3, args_4, args_gene_panel, args_5, args_6, args_7])
     for arg in slx:
@@ -816,12 +819,20 @@ if __name__ == "__main__":
                         help="Calculate the heterogenity for each sample and output it as a table.")
     parser.add_argument("-m", "--ncpus", help="The number of CPUs dedicated to the annotation process.", default=1,
                         action="store", type=int)
+    parser.add_argument("-e", "--exists",
+                        help="Will let the DB tool know, that a DB with this run configuration's VCFs and name already exists, thus skipping the DB creation.",
+                        default=False,
+                        action="store_true")
 
     args = parser.parse_args()
     if args.batch and args.panels is None:
-        parser.error("--batch requires --panels\nCheck {0} --help panels for more info".format(__file__))
+        parser.error("--batch requires --panels\nCheck {0} --help for more info".format(__file__))
     if args.samples is not None and args.panels is None:
-        parser.error("--samples requires --panels\nCheck {0} --help panels for more info".format(__file__))
+        parser.error("--samples requires --panels\nCheck {0} --help for more info".format(__file__))
+    if args.exists and args.overwrite:
+        parser.error(
+            "--overwrite and --exists can't be active at the same time!\n--exists will skip database creation"
+            "\n--overwrite assumes you want to replace an existing VCF file with a newer version")
 
     # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
     # pool = pathos.multiprocessing.ProcessPool(ncpus=args.ncpus)
