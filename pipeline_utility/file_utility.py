@@ -193,7 +193,8 @@ def copy_vcf(files, dest, overwrite=False):
             while os.path.isfile(os.path.join(dest, rename_file_idx(path, re_idx))):
                 re_idx += 1
             fname = rename_file_idx(path, re_idx)
-            shutil.copy(path, os.path.join(dest, fname))
+            if os.path.isfile(path):
+                shutil.copy(path, os.path.join(dest, fname))
 
             renamed.append(os.path.join(dest, fname))
     print("Finished copying of {0} files. Renamed {1} files. ".format(len(unique_copied), len(renamed)))
