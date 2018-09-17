@@ -101,7 +101,7 @@ def update_sample_stats(dns, ts):
 def combine_variants(vcflist=config.db_vcf_dir):
     global args
     # Combining variant files into a single reference to be used for statistical purposes
-    combine = shlex.split('java -Xmx10g -jar {0} '
+    combine = shlex.split('java -Xmx20g -jar {0} '
                           '-T CombineVariants '
                           '-R {1} '
                           '-V {2} '
@@ -114,7 +114,7 @@ def combine_variants(vcflist=config.db_vcf_dir):
                                                                   config.logfile,
                                                                   args.ncpus))
 
-    variantstotable = shlex.split('java -Xmx10g -jar {0} '
+    variantstotable = shlex.split('java -Xmx20g -jar {0} '
                                   '-T VariantsToTable '
                                   '-R {1} '
                                   '-V {2}{3}.vcf '
@@ -149,7 +149,7 @@ def genderCheck(args, samples):
         vcflist = vcflist + "--variant:{0} {1} \\".format(sample.name, sample.vcflocation)
         # print vcflist
     if not args.testmode:
-        combine = shlex.split('java -Xmx10g -jar {0} '
+        combine = shlex.split('java -Xmx20g -jar {0} '
                               '-T CombineVariants '
                               '-R {1} \\'
                               '{2} \\'

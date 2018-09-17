@@ -67,7 +67,7 @@ def update_vcf_list(vcfs_list, config, copied, renamed, db_name_samples, total_s
 
 def combine_variants(out, processes, logdata, config, vcflist, ncpus=1):
     # Combining variant files into a single reference to be used for statistical purposes
-    args = shlex.split('java -Xmx10g -jar {0} '
+    args = shlex.split('java -Xmx20g -jar {0} '
                        '-T CombineVariants '
                        '-R {1} '
                        '-V {2} '
@@ -83,7 +83,7 @@ def combine_variants(out, processes, logdata, config, vcflist, ncpus=1):
     logdata(proc.stderr)
     proc.wait()
 
-    args = shlex.split('java -Xmx10g -jar {0} '
+    args = shlex.split('java -Xmx20g -jar {0} '
                        '-T VariantsToTable '
                        '-R {1} '
                        '-V {2}{3}.vcf '
