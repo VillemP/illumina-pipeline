@@ -81,7 +81,7 @@ def combine_variants(out, processes, logdata, config, vcflist, ncpus=1):
     processes.append(proc)
 
     logdata(proc.stderr)
-    proc.wait()
+    returncode = proc.wait()
 
     args = shlex.split('java -Xmx20g -jar {0} '
                        '-T VariantsToTable '

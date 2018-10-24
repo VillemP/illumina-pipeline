@@ -55,7 +55,7 @@ assert os.path.exists(config.annotator)
 class AnnotationException(Exception):
     def __init__(self, message, sample):
         # Call the base class constructor with the parameters it needs
-        super(AnnotationException, self).__init__(message)
+        super(AnnotationException, self).__init__(message, sample)
         self.sample = sample
 
 
@@ -98,6 +98,15 @@ def update_sample_stats(dns, ts):
     return dns, ts
 
 
+class DatabaseException(Exception):
+    def __init__(self, argsmessage, returncode):
+        self.argsmessage = argsmessage
+        self.returncode = returncode
+
+    def __str__(self):
+        return str([self.argsmessage, self.returncode])
+
+
 def combine_variants(vcflist=config.db_vcf_dir):
     global args
     # Combining variant files into a single reference to be used for statistical purposes
@@ -129,12 +138,15 @@ def combine_variants(vcflist=config.db_vcf_dir):
         processes.append(proc_combine)
 
         logdata(proc_combine.stderr)
-        proc_combine.wait()
+        errrorcode = proc_combine.wait()
 
         proc_totable = subprocess.Popen(variantstotable, shell=False, stderr=subprocess.PIPE)
         processes.append(proc_totable)
         logdata(proc_totable.stderr)
-        proc_totable.wait()
+        totable_errorcode = proc_totable.wait()
+        if errrorcode != 0 or totable_errorcode != 0:
+            raise DatabaseException(combine, proc_combine.returncode)
+
     else:
         print("Skipping DB creation. Using database with name: {0}".format(
             "".join([config.db_directory, db_name_samples, ".txt"])))
@@ -307,7 +319,8 @@ def annotate(sample, args):
                 print("Finished annotating sample {0}".format(sample.name))
                 print(sample)
             else:
-                print("Error code: {0}".format(proc_7.returncode))
+                # print("Error code: {0}".format(proc_7.returncode))
+                raise AnnotationException("Annotation raised an exception for {0}".format(sample.name), sample)
 
         # return [p.children.returncode for p in processes]
         return None
@@ -380,6 +393,9 @@ def calc_coverage(sample):
                                                                sample.name + '.requested.sample_summary')))
         sample.table_files.append(os.path.abspath(os.path.join(workingDir, sample.name + "_coverage",
                                                                sample.name + '.requested.sample_gene_summary')))
+    else:
+        raise AnnotationException("The coverage analysis for sample {0} "
+                                  "did not finish successfully".format(sample.name), sample)
     return return_code
 
 
@@ -398,7 +414,8 @@ def create_excel_table(sample):
     print("Entering create_excel")
     if args.annotate and sample.annotated:
         create_excel(".".join([sample.name, "xlsx"]), sample.table_files, filters, postprocess, formats)
-        sample.finished = True
+        if len(sample.exceptions) == 0:
+            sample.finished = True
     else:
         sys.stderr.write("PIPELINE ERROR: Cannot create excel file for {0} "
                          "due to incomplete annotations!\n".format(sample.name))
@@ -421,9 +438,12 @@ def getGeneOrder(samples, args):
         for line in args.panels.readlines():
             # Don't read empty lines or comments
             if len(line) > 0 and not line.startswith("#"):
-                (prefix, panels, genes) = line.split('\t')
-                rows[prefix] = ([pan.strip().upper() for pan in panels.split(",")],
-                                [g.strip().upper() for g in genes.split(",")])
+                split_row = line.split('\t')
+                prefix = split_row[0]
+                panels = split_row[1]
+                genes = split_row[2]
+                rows[prefix] = ([pan.strip().upper().replace('"', '') for pan in panels.split(",")],
+                                [g.strip().upper().replace('"', '') for g in genes.split(",")])
         if len(rows) > len(samples):
             sys.stderr.write("WARNING: some samples represented in the --panels file "
                              "have no matching samples in the batch. "
@@ -455,17 +475,17 @@ def getGeneOrder(samples, args):
                         sample.panels.append((panel, 'ALL'))
         print("-" * 90)
     except IOError as e:
-        sys.stderr.write("PIPELINE ERROR: {0}\nDoes your batch contain the panels.txt file?\n"
-                         "Creating a new panel.txt file in the working directory {1}.\n".
+        sys.stderr.write("PIPELINE ERROR: {0}\nDoes your batch contain the panels.list file?\n"
+                         "Creating a new panel.list file in the working directory {1}.\n".
                          format(e.message, workingDir))
-        if not os.path.exists(os.path.join(workingDir, "panels.txt")):
-            with open(os.path.join(workingDir, "panels.txt"), "w+") as panelsfile:
+        if not os.path.exists(os.path.join(workingDir, "panels.list")):
+            with open(os.path.join(workingDir, "panels.list"), "w+") as panelsfile:
                 panelsfile.write("#SAMPLE\tGENES (comma-seperated)\tPANELS (comma-seperated)")
                 for sample in samples:
                     print("\t".join((sample.name, "-", "-")))
                     panelsfile.write("\t".join((sample.name, "-", "-")))
         else:
-            sys.stderr.write("ABORTING: panels.txt file already exists but might be corrupt.\n")
+            sys.stderr.write("ABORTING: panels.list file already exists but might be corrupt.\n")
             sys.exit(1)
 
 
@@ -489,6 +509,7 @@ def single_sample(args, sample):
     if args.coverage:
         try:
             return_coverage = calc_coverage(sample)
+
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage", sample.name + ".requested"))
             sample.trash.append(os.path.join(workingDir, sample.name + "_coverage",
                                              sample.name + ".sample_cumulative_coverage_counts"))
@@ -500,7 +521,7 @@ def single_sample(args, sample):
                                              sample.name + ".sample_statistics"))
             sample.trash.append(sample.temprefseq)
             sample.trash.append(sample.temptargetfile)
-        except Exception as error:
+        except AnnotationException as error:
             sample.exceptions.append(error)
             sys.stderr.write("PIPELINE ERROR in worker: {0}\nTrace: ".format(sample))
             traceback.print_exc(file=sys.stderr)
@@ -552,8 +573,14 @@ def run_samples(sample_list, args, pool):
     # DB is already updated
     if not args.old:
         # update_database(samples, args.no_replace, args.testmode)
-        dns, ts = local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
+        try:
+            dns, ts = local_db_tool.update_database(samples, args, config, combine_variants, update_sample_stats,
                                                 db_name_samples, total_samples)
+        # There was a problem with CombineVariants or VariantsToTable, a nonzero returncode.
+        except DatabaseException as e:
+            sys.stderr.write("PIPELINE ERROR: Could not create common database due to possible error.\n")
+            sys.stderr.write(str(e) + "\n")
+            raise
 
         for sample in samples:
             if args.testmode:
@@ -837,6 +864,5 @@ if __name__ == "__main__":
     # pool = pathos.parallel.ParallelPool(ncpus=args.ncpus)
     # pool = pathos.multiprocessing.ProcessPool(ncpus=args.ncpus)
     pool = Pool(processes=args.ncpus)
-    main(args, pool)
-
     atexit.register(cleanup, pool)
+    main(args, pool)
