@@ -33,6 +33,8 @@ The pipeline consists of
 8. converting table files to an excel file and running post-scripts to edit the excel document (adding autofilters, hyperlinks, converting text to be more readable, etc [all variants are conserved])
 
 Citations
-Online Mendelian Inheritance in Man, OMIM®. McKusick-Nathans Institute of Genetic Medicine, Johns Hopkins University (Baltimore, MD), {date}. World Wide Web URL: https://omim.org/
-Genomics England PanelApp; https://panelapp.genomicsengland.co.uk 
+Online Mendelian Inheritance in Man, OMIM®. McKusick-Nathans Institute of Genetic Medicine, Johns Hopkins University (Baltimore, MD), 2018. World Wide Web URL: https://omim.org/
+
+Genomics England PanelApp; https://panelapp.genomicsengland.co.uk
+
 HUGO Gene Nomenclature Committee at the European Bioinformatics Institute
