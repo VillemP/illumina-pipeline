@@ -145,9 +145,9 @@ def annotate(sample, args, config):
         annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
                                     "-out {3} "
                                     "-remove -protocol "
-                                    "refGene,cytoBand,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130,cosmic84 "
-                                    "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                                    "-operation g,r,f,f,f,f,f,f,f "
+                                    "refGene,cytoBand,avsnp150,gnomad_genome,gnomad_exome,ljb26_all,clinvar_20180603,cosmic84 "
+                                    "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                    "-operation g,r,f,f,f,f,f,f "
                                     "-nastring . "
                                     "-otherinfo "
                                     "-vcfinput".format(config.annotator, input_vcf, config.annotation_db,
@@ -175,12 +175,12 @@ def annotate(sample, args, config):
     args_5 = shlex.shlex('java -jar {0} '
                          'extractFields '
                          '- '
-                         '-e . -s ";" CHROM POS cytoBand avsnp147 REF ALT QUAL FILTER DP GEN[0].AD[0] GEN[0].VF '
+                         '-e . -s ";" CHROM POS cytoBand avsnp150 REF ALT QUAL FILTER DP GEN[0].AD[0] GEN[0].VF '
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
-                         '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
+                         'gnomAD_genome_ALL gnomAD_genome_NFE gnomAD_exome_ALL gnomAD_exome_NFE gnomAD_exome_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
-                         'CLNDSDB CLNDSDBID cosmic84 '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLNSIG CLNALLELEID CLNDN '
+                         'CLNREVSTAT CLNDISDB cosmic84 '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
     if args.testmode:

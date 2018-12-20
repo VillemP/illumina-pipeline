@@ -107,6 +107,7 @@ class DatabaseException(Exception):
         return str([self.argsmessage, self.returncode])
 
 
+# Overwrites and replaces the local_db_tool CombineVariants
 def combine_variants(vcflist=config.db_vcf_dir):
     global args
     # Combining variant files into a single reference to be used for statistical purposes
@@ -211,9 +212,9 @@ def annotate(sample, args):
         annotation = shlex.split('perl {0} "{1}" "{2}" -buildver hg19 '
                                  '-out "{3}" '
                                  "-remove -protocol "
-                                 "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
-                                 "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                                 "-operation g,f,f,f,f,f,f "
+                                 "refGene,avsnp150,gnomad_genome,gnomad_exome,ljb26_all,clinvar_20180603 "
+                                 "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                 "-operation g,f,f,f,f,f "
                                  "-nastring . "
                                  "-otherinfo "
                                  "-vcfinput".format(config.annotator,
@@ -256,12 +257,12 @@ def annotate(sample, args):
     args_5 = shlex.shlex('java -Xmx4g -jar {0} '
                          'extractFields '
                          '- '
-                         '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         '-e . -s ";" CHROM POS avsnp150 REF ALT QUAL FILTER AC AF DP '
                          'Gene.refGene GeneReq Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
-                         '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
+                         'gnomAD_genome_ALL gnomAD_genome_NFE gnomAD_exome_ALL gnomAD_exome_NFE gnomAD_exome_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
-                         'CLNDSDB CLNDSDBID '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLNSIG CLNALLELEID CLNDN '
+                         'CLNREVSTAT CLNDISDB '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
 
@@ -718,8 +719,8 @@ def main(args, pool):
                           "Do you wish to continue {1} or not {2}: "
                           .format(config.custom_annotation_dir, yesChoice, noChoice)).lower()
         if input in yesChoice:
-            # db_update.update_all(config.custom_annotation_dir, args.testmode)
-            db_update.update_hgnc()
+            db_update.update_all(config.custom_annotation_dir, args.testmode)
+            # db_update.update_hgnc()
 
         elif input in noChoice:
             print("Quitting...")

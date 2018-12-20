@@ -48,6 +48,7 @@ class JobStats():
             self.unfinished_samples.append(sample)
         self.lock.release()
 
+
 def logdata(stdout):
     # TODO: Fix logging
     with open(config.logfile, "a+") as log:
@@ -64,6 +65,7 @@ def update_sample_stats(dns, ts):
 
     db_name_samples = dns
     total_samples = ts
+
 
 def combine_variants():
     # Combining variant files into a single reference to be used for statistical purposes
@@ -114,14 +116,14 @@ def annotate(sample, args, config):
     if not args.testmode:
         outfile = "{0}.targeted.padding{1}bp.vcf".format(sample.name, config.padding)
         reduce_variants_args = shlex.split("java -Xmx10g -jar {0} "
-                           "-T SelectVariants "
-                           "-R {1} "
-                           "-V {2} "
-                           "-L {3} "
-                           "-o {4} "
-                           "-ip {5}".format(config.toolkit, config.reference,
-                                            sample.vcflocation, config.targetfile,
-                                            outfile, config.padding))
+                                           "-T SelectVariants "
+                                           "-R {1} "
+                                           "-V {2} "
+                                           "-L {3} "
+                                           "-o {4} "
+                                           "-ip {5}".format(config.toolkit, config.reference,
+                                                            sample.vcflocation, config.targetfile,
+                                                            outfile, config.padding))
 
         proc = subprocess.Popen(reduce_variants_args, shell=False, stderr=subprocess.PIPE)
         processes.append(proc)
@@ -137,14 +139,14 @@ def annotate(sample, args, config):
             sample.error = True
 
         annotate_args = shlex.split("perl {0} {1} {2} -buildver hg19 "
-                           "-out {3} "
-                           "-remove -protocol "
-                           "refGene,avsnp147,1000g2015aug_all,1000g2015aug_eur,exac03,ljb26_all,clinvar_20170130 "
-                           "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
-                           "-operation g,f,f,f,f,f,f "
-                           "-nastring . "
-                           "-otherinfo "
-                           "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
+                                    "-out {3} "
+                                    "-remove -protocol "
+                                    "refGene,avsnp150,gnomad_genome,gnomad_exome,ljb26_all,clinvar_20180603 "
+                                    "-argument '-hgvs,-hgvs,-hgvs,-hgvs,-hgvs,-hgvs' "
+                                    "-operation g,f,f,f,f,f "
+                                    "-nastring . "
+                                    "-otherinfo "
+                                    "-vcfinput".format(config.annotator, outfile, config.annotation_db, sample.name))
         if not sample.error:
             proc = subprocess.Popen(annotate_args, shell=False, stderr=subprocess.PIPE)
             with proc.stderr:
@@ -168,12 +170,12 @@ def annotate(sample, args, config):
     args_5 = shlex.shlex('java -jar {0} '
                          'extractFields '
                          '- '
-                         '-e . -s ";" CHROM POS avsnp147 REF ALT QUAL FILTER AC AF DP '
+                         '-e . -s ";" CHROM POS avsnp150 REF ALT QUAL FILTER AC AF DP '
                          'Gene.refGene Func.refGene GeneDetail.refGene ExonicFunc.refGene AAChange.refGene '
-                         '1000g2015aug_all 1000g2015aug_eur ExAC_ALL ExAC_NFE ExAC_FIN SIFT_score SIFT_pred '
+                         'gnomAD_genome_ALL gnomAD_genome_NFE gnomAD_exome_ALL gnomAD_exome_NFE gnomAD_exome_FIN SIFT_score SIFT_pred '
                          'Polyphen2_HVAR_score Polyphen2_HVAR_pred MutationTaster_score MutationTaster_pred '
-                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLINSIG CLNDBN CLNACC '
-                         'CLNDSDB CLNDSDBID '
+                         'CADD_raw CADD_phred phyloP46way_placental phyloP100way_vertebrate CLNSIG CLNALLELEID CLNDN '
+                         'CLNREVSTAT CLNDISDB '
                          'Disease.name Disease.nr HPO Panel GEN[0].GT GEN[0].DP GEN[0].AD'
                          .format(config.snpsift))
     if args.testmode:
@@ -182,7 +184,7 @@ def annotate(sample, args, config):
     args_7 = shlex.shlex(
         'python {0} db_freq --annotation {1}.txt --totalsamples {2}'.format(os.path.abspath(annotate_by_pos.__file__),
                                                                             os.path.join(config.db_directory,
-                                                                      db_name_samples),
+                                                                                         db_name_samples),
                                                                             total_samples))
     # This approach retains quotation marks and complete whitespace delimited args
     slx = list([args_1, args_2, args_3, args_4, args_5, args_6, args_7])
@@ -216,7 +218,6 @@ def annotate(sample, args, config):
     else:
         # There was a problem with SelectVariants
         sample.annotated = False
-
 
 
 def calc_coverage(sample):
@@ -428,7 +429,7 @@ if __name__ == "__main__":
                                  "not supposed to be inserted into the DB for each run.",
                             action="store_true", default=False)
         parser.add_argument("-t", "--testmode", help="Skips the variant DB recompilation (CombineVariants) step, "
-                                                 "expects the DB to exist..",
+                                                     "expects the DB to exist..",
                             action="store_true", default=False)
         parser.add_argument("-k", "--keep", help="Keep intermediary annotation files.",
                             action="store_true", default=False)
